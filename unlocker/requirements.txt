@@ -1,0 +1,11 @@
+wheel
+pyusb
+pycryptodome
+pycryptodomex
+colorama
+usb
+shiboken6
+pyside6
+mock
+pyserial
+json5

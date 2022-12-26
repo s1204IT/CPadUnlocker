@@ -1,0 +1,12 @@
+{
+    "0x8167": {
+        "payload": "mt8167_payload.bin",
+    },
+    "0x8168": {
+        "uart_base": 0x10007000,
+        "var_1": 0xA,
+        "payload": "mt8168_payload.bin",
+        "ptr_usbdl": 0x13834,
+        "ptr_da": 0x13d78,
+    },
+}

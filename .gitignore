@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+__init__.py
+
+# Log
+# MTKClient
+logs/
+# MTK Bypass_Utility
+bypass_utility.log
+
+# AutoDumping PreLoader & BootROM
+# brom
+bootrom_816?.bin
+# CT3
+preloader_a04br3.bin
+# CTX
+preloader_a05bd.bin
+# CTZ
+preloader_a05ba.bin
