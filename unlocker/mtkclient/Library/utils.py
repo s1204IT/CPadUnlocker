@@ -660,14 +660,14 @@ class patchtools:
         strasm = ""
         if div > 0:
             strasm += "# " + hex(offset) + "\n"
-            strasm += "mov " + reg + ",
-            strasm += "movk " + reg + ",
-            strasm += "sub  " + reg + ", " + reg + ",
+            strasm += "mov " + reg + ", #" + hex(a) + ";\n"
+            strasm += "movk " + reg + ", #" + hex(abase) + ", LSL#16;\n"
+            strasm += "sub  " + reg + ", " + reg + ", #" + hex(div) + ";\n"
         else:
             strasm += "# " + hex(offset) + "\n"
-            strasm += "mov " + reg + ",
-            strasm += "movk " + reg + ",
-            strasm += "add  " + reg + ", " + reg + ",
+            strasm += "mov " + reg + ", #" + hex(a) + ";\n"
+            strasm += "movk " + reg + ", #" + hex(abase) + ", LSL#16;\n"
+            strasm += "add  " + reg + ", " + reg + ", #" + hex(-div) + ";\n"
         return strasm
 
     def uart_valid_sc(self, sc):
@@ -675,7 +675,7 @@ class patchtools:
         for idx, c in enumerate(sc):
             c = bytes([c])
             if c in badchars:
-                print("bad char 0x%s in SC at offset %d, opcode
+                print("bad char 0x%s in SC at offset %d, opcode # %d!\n" % (codecs.encode(c, 'hex'), idx, idx / 4))
                 print(codecs.encode(sc, 'hex'))
                 return False
         return True
@@ -697,16 +697,6 @@ class patchtools:
                 print(e.stat_count)
                 print(code[e.stat_count:e.stat_count + 10])
                 exit(0)
-                if self.bDebug:
-                    for idx, line in enumerate(code.splitlines()):
-                        print("%02d: %s" % (idx, line))
-                        if len(line) and line[0] != '.':
-                            try:
-                                encoding, count = ks.asm(line)
-                            except Exception as e:
-                                print("bummer: " + str(e))
-                else:
-                    exit(0)
         else:
             encoding, count = ks.asm(code)
 

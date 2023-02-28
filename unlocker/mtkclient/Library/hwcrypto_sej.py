@@ -4,7 +4,6 @@
 import logging, os
 from struct import pack, unpack
 from mtkclient.Library.utils import LogBase
-from binascii import hexlify
 
 CustomSeed = bytearray(b"12abcdef")
 

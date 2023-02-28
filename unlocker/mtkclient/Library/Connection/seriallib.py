@@ -1,7 +1,6 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 # (c) B.Kerler 2018-2022
-import os.path
 import time
 import sys
 if sys.platform != "win32":

@@ -4,10 +4,9 @@
 import logging
 import time
 import os
-import hashlib
 from binascii import hexlify
 from struct import pack, unpack
-from mtkclient.Library.utils import LogBase, progress, logsetup
+from mtkclient.Library.utils import LogBase, logsetup
 from mtkclient.Library.error import ErrorHandler
 from mtkclient.Library.daconfig import EMMC_PartitionType, UFS_PartitionType, DaStorage
 from mtkclient.Library.partition import Partition
