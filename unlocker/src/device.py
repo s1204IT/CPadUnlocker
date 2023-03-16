@@ -53,7 +53,7 @@ class Device:
         except usb.core.USBError:
             self.backend = usb.backend.libusb1.get_backend()
 
-        log("Waiting for device")
+        log("端末の接続を待機しています...")
         if wait:
             self.udev = usb.core.find(idVendor=int(VID, 16), backend=self.backend)
             while self.udev:
@@ -66,7 +66,8 @@ class Device:
                 break
             time.sleep(0.25)
 
-        log("Found device = {0:04x}:{1:04x}".format(self.udev.idVendor, self.udev.idProduct))
+        log("検出された端末：{0:04x}:{1:04x}".format(self.udev.idVendor, self.udev.idProduct))
+        print("この画面から動作しない場合は､ 同じ方法で再接続してください｡")
         self.dev = self
 
         try:

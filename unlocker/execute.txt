@@ -1,0 +1,2 @@
+da seccfg unlock
+r boot ..\boot.img

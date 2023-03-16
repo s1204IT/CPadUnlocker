@@ -12,3 +12,7 @@ bypass_utility.log
 bootrom_8167.bin
 # CT3
 preloader_a04br3.bin
+
+# CPadUnlocker
+*.cab
+/cab/
