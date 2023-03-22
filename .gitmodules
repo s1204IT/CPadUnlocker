@@ -1,0 +1,3 @@
+[submodule "sources/mtkclient"]
+	path = sources/mtkclient
+	url = git@github.com:s1204IT/mtkclient
