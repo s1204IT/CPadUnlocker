@@ -1,6 +1,0 @@
-[submodule "sources/mtkclient"]
-	path = sources/mtkclient
-	url = https://github.com/bkerler/mtkclient
-[submodule "sources/bypass_utility"]
-	path = sources/bypass_utility
-	url = https://github.com/MTK-bypass/bypass_utility
