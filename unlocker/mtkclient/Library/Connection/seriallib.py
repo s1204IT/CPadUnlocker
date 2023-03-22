@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 # (c) B.Kerler 2018-2022
+import os.path
 import time
 import sys
 if sys.platform != "win32":
@@ -52,9 +53,6 @@ class serial_class(DeviceClass):
     def setportname(self, portname:str):
         self.portname = portname
 
-    def set_fast_mode(self, enabled):
-        pass
-
     def close(self, reset=False):
         if self.connected:
             self.device.close()
@@ -102,6 +100,7 @@ class serial_class(DeviceClass):
             except Exception as err:
                 error = str(err.strerror)
                 if "timeout" in error:
+                    # time.sleep(0.01)
                     try:
                         self.device.write(b'')
                     except Exception as err:
@@ -118,6 +117,8 @@ class serial_class(DeviceClass):
                     pos += pktsize
                 except Exception as err:
                     self.debug(str(err))
+                    # print("Error while writing")
+                    # time.sleep(0.01)
                     i += 1
                     if i == 3:
                         return False
@@ -126,6 +127,13 @@ class serial_class(DeviceClass):
         self.device.flushOutput()
         timeout = 0
         time.sleep(0.005)
+        """
+        while self.device.in_waiting == 0:
+            time.sleep(0.005)
+            timeout+=1
+            if timeout==10:
+                break
+        """
         return True
 
     def read(self, length=None, timeout=-1):
@@ -199,7 +207,9 @@ class serial_class(DeviceClass):
         return res
 
     def usbreadwrite(self, data, resplen):
-        self.usbwrite(data)
+        self.usbwrite(data)  # size
         self.device.flush()
         res = self.usbread(resplen)
         return res
+
+

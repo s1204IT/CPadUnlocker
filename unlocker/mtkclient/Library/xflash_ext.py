@@ -1,3 +1,4 @@
+import hmac
 import os
 from struct import unpack, pack
 
@@ -8,6 +9,7 @@ from mtkclient.Library.hwcrypto import crypto_setup, hwcrypto
 from mtkclient.Library.utils import LogBase, progress, logsetup, find_binary
 from mtkclient.Library.seccfg import seccfg
 from binascii import hexlify
+import hashlib
 from mtkclient.Library.utils import mtktee
 import json
 
@@ -67,11 +69,13 @@ class xflashext(metaclass=LogBase):
 
     def patch(self):
         self.da2 = self.xflash.daconfig.da2
-        self.da2address = self.xflash.daconfig.da_loader.region[2].m_start_addr
+        self.da2address = self.xflash.daconfig.da_loader.region[2].m_start_addr  # at_address
         daextensions = os.path.join(self.pathconfig.get_payloads_path(), "da_x.bin")
         if os.path.exists(daextensions):
             daextdata = bytearray(open(daextensions, "rb").read())
+            # open("out" + hex(self.da2address) + ".da", "wb").write(da2)
             register_cmd = find_binary(self.da2, b"\x38\xB5\x05\x46\x0C\x20")
+            # sec_enc_seccfg = find_binary(self.da2, b"\x0E\x4B\x70\xB5\x06\x46")
             mmc_get_card = find_binary(self.da2, b"\x4B\x4F\xF4\x3C\x72")
             if mmc_get_card is not None:
                 mmc_get_card -= 1
@@ -111,6 +115,7 @@ class xflashext(metaclass=LogBase):
                                                'little')
             else:
                 g_ufs_hba = int.from_bytes(self.da2[ptr_g_ufs_hba + 10:ptr_g_ufs_hba + 10 + 4], 'little')
+            # open("da2_"+hex(self.da2address)+".bin","wb").write(self.da2)
             if ptr_g_ufs_hba is not None:
                 ufshcd_get_free_tag = find_binary(self.da2, b"\xB5.\xB1\x90\xF8")
                 ufshcd_queuecommand = find_binary(self.da2, b"\x2D\xE9\xF8\x43\x01\x27")
@@ -150,6 +155,7 @@ class xflashext(metaclass=LogBase):
                 if g_ufs_hba is None:
                     g_ufs_hba = 0
 
+                # Patch the addr
                 daextdata[register_ptr:register_ptr + 4] = pack("<I", register_cmd)
                 daextdata[mmc_get_card_ptr:mmc_get_card_ptr + 4] = pack("<I", mmc_get_card)
                 daextdata[mmc_set_part_config_ptr:mmc_set_part_config_ptr + 4] = pack("<I", mmc_set_part_config)
@@ -158,14 +164,18 @@ class xflashext(metaclass=LogBase):
                 daextdata[ufshcd_queuecommand_ptr:ufshcd_queuecommand_ptr + 4] = pack("<I", ufshcd_queuecommand)
                 daextdata[ptr_g_ufs_hba_ptr:ptr_g_ufs_hba_ptr + 4] = pack("<I", g_ufs_hba)
 
+                # print(hexlify(daextdata).decode('utf-8'))
+                # open("daext.bin","wb").write(daextdata)
                 return daextdata
         return None
 
     def patch_da1(self, da1):
+        # Patch error 0xC0020039
         self.info("Patching da1 ...")
         if da1 is not None:
             da1patched = bytearray(da1)
             da1patched = self.mtk.patch_preloader_security(da1patched)
+            # Patch security
 
             da_version_check = find_binary(da1, b"\x1F\xB5\x00\x23\x01\xA8\x00\x93\x00\xF0\xDE\xFE")
             if da_version_check is not None:
@@ -179,13 +189,17 @@ class xflashext(metaclass=LogBase):
 
     def patch_da2(self, da2):
         da2=self.mtk.patch_preloader_security(da2)
+        # Patch error 0xC0030007
         self.info("Patching da2 ...")
+        # open("da2.bin","wb").write(da2)
         da2patched = bytearray(da2)
+        # Patch security
         is_security_enabled = find_binary(da2, b"\x01\x23\x03\x60\x00\x20\x70\x47")
         if is_security_enabled != -1:
             da2patched[is_security_enabled:is_security_enabled + 2] = b"\x00\x23"
         else:
             self.warning("Security check not patched.")
+        # Patch hash check
         authaddr = find_binary(da2, b"\x04\x00\x07\xC0")
         if authaddr:
             da2patched[authaddr:authaddr + 4] = b"\x00\x00\x00\x00"
@@ -199,6 +213,8 @@ class xflashext(metaclass=LogBase):
                     da2patched[authaddr:authaddr + 14] = b"\x4F\xF0\x00\x09\x32\x46\x01\x98\x03\x99\x4F\xF0\x00\x09"
                 else:
                     self.warning("Hash check not patched.")
+        # Patch write not allowed
+        # open("da2.bin","wb").write(da2patched)
         idx = 0
         patched = False
         while idx != -1:
@@ -358,6 +374,7 @@ class xflashext(metaclass=LogBase):
         if self.config.chipconfig.meid_addr:
             meid = self.config.get_meid()
             if meid != b"\x00"*16:
+                #self.config.set_meid(meid)
                 self.info("Generating sej rpmbkey...")
                 self.setotp(hwc)
                 rpmbkey = hwc.aes_hwcrypt(mode="rpmb", data=meid, btype="sej")
@@ -578,18 +595,16 @@ class xflashext(metaclass=LogBase):
         if self.config.chipconfig.dxcc_base is not None:
             self.info("Generating dxcc rpmbkey...")
             rpmbkey = hwc.aes_hwcrypt(btype="dxcc", mode="rpmb")
-            self.info("Generating dxcc mirpmbkey...")
-            mirpmbkey = hwc.aes_hwcrypt(btype="dxcc", mode="mirpmb")
             self.info("Generating dxcc fdekey...")
             fdekey = hwc.aes_hwcrypt(btype="dxcc", mode="fde")
             self.info("Generating dxcc rpmbkey2...")
             rpmb2key = hwc.aes_hwcrypt(btype="dxcc", mode="rpmb2")
             self.info("Generating dxcc km key...")
             ikey = hwc.aes_hwcrypt(btype="dxcc", mode="itrustee")
-            if mirpmbkey is not None:
-                self.info("MIRPMB      : " + hexlify(mirpmbkey).decode('utf-8'))
-                self.config.hwparam.writesetting("mirpmbkey", hexlify(mirpmbkey).decode('utf-8'))
-                retval["mirpmbkey"] = hexlify(mirpmbkey).decode('utf-8')
+            # self.info("Generating dxcc platkey + provkey key...")
+            # platkey, provkey = hwc.aes_hwcrypt(btype="dxcc", mode="prov")
+            # self.info("Provkey     : " + hexlify(provkey).decode('utf-8'))
+            # self.info("Platkey     : " + hexlify(platkey).decode('utf-8'))
             if rpmbkey is not None:
                 self.info("RPMB        : " + hexlify(rpmbkey).decode('utf-8'))
                 self.config.hwparam.writesetting("rpmbkey", hexlify(rpmbkey).decode('utf-8'))
@@ -645,6 +660,7 @@ class xflashext(metaclass=LogBase):
             if meid == b"":
                 meid = self.custom_read(0x1008ec, 16)
             if meid != b"":
+                #self.config.set_meid(meid)
                 self.info("Generating sej rpmbkey...")
                 self.setotp(hwc)
                 rpmbkey = hwc.aes_hwcrypt(mode="rpmb", data=meid, btype="sej")

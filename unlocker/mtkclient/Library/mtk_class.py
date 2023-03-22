@@ -15,6 +15,7 @@ from mtkclient.Library.error import ErrorHandler
 
 
 def split_by_n(seq, unit_count):
+    """A generator to divide a sequence into chunks of n units."""
     while seq:
         yield seq[:unit_count]
         seq = seq[unit_count:]
@@ -55,10 +56,15 @@ class Mtk(metaclass=LogBase):
                 data[idx:idx + len(patch)] = patch
                 self.info(f"Patched \"{patchval[2]}\" in preloader")
                 patched = True
+                # break
             i += 1
         if not patched:
             self.warning(f"Failed to patch preloader security")
         else:
+            # with open("preloader.patched", "wb") as wf:
+            #    wf.write(data)
+            #    print("Patched !")
+            # self.info(f"Patched preloader security: {hex(i)}")
             data = data
         return data
 
@@ -74,6 +80,10 @@ class Mtk(metaclass=LogBase):
         if magic == 0x014D4D4D:
             self.info(f"Valid preloader detected.")
             daaddr = unpack("<I", data[0x1C:0x20])[0]
+            # dasize = unpack("<I", data[0x20:0x24])[0]
+            # maxsize = unpack("<I", data[0x24:0x28])[0]
+            # content_offset = unpack("<I", data[0x28:0x2C])[0]
+            # sig_length = unpack("<I", data[0x2C:0x30])[0]
             jump_offset = unpack("<I", data[0x30:0x34])[0]
             daaddr = jump_offset + daaddr
             dadata = data[jump_offset:]

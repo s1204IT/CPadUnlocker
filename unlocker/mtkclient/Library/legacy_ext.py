@@ -5,7 +5,7 @@ from mtkclient.Library.settings import hwparam
 from mtkclient.config.payloads import pathconfig
 from mtkclient.Library.error import ErrorHandler
 from mtkclient.Library.hwcrypto import crypto_setup, hwcrypto
-from mtkclient.Library.utils import LogBase, logsetup, find_binary
+from mtkclient.Library.utils import LogBase, progress, logsetup, find_binary
 from mtkclient.Library.seccfg import seccfg
 from binascii import hexlify
 from mtkclient.Library.utils import mtktee
@@ -45,6 +45,7 @@ class legacyext(metaclass=LogBase):
 
     def patch_da2(self, da2):
         da2patched = bytearray(da2)
+        # Patch security READ_REG16_CMD
         check_addr = find_binary(da2, b"\x08\xB5\x4F\xF4\x50\x42")
         if check_addr is not None:
             da2patched[check_addr:check_addr + 6] = b"\x08\xB5\x00\x20\x08\xBD"
@@ -53,6 +54,27 @@ class legacyext(metaclass=LogBase):
             self.warning("Legacy address check not patched.")
         check_addr2 = find_binary(da2, bytes.fromhex("30 B5 85 B0 03 AB 4A F2 C8 64 68 46 01 A9 02"))
         if check_addr2 is not None:
+            """
+            PUSH            {R4-R6,LR}
+            MOV             R4, #0x8004A6C8
+            LDR             R3, [R4,#0x24]
+            BLX             R3
+            LDR             R3, [R4,#0x24]
+            MOV             R5, R0
+            BLX             R3
+            MOV             R6, R0
+            LDR             R0, [R5]
+            ADD.W           R5, R5, #4
+            LDR             R3, [R4,#0x28]
+            BLX             R3
+            SUB.W           R6, R6, #1
+            CMP             R6, #0
+            BNE             0x8000C1B6
+            MOVS            R0, #0x5A
+            LDR             R3, [R4,#0x10]
+            POP.W           {R4-R6,LR}
+            BX              R3
+            """
             cmdF0 = bytes.fromhex("70 B5 4A F2 C8 64 C8 F2 04 04 63 6A 98 47 63 6A 05 46 98 47 06 46 4F F0 00 01 28 68 05 F1 04 05 A3 6A 98 47 A6 F1 01 06 00 2E F6 D1 5A 20 23 69 BD E8 70 40 18 47")
             da2patched[check_addr2:check_addr2+len(cmdF0)]=cmdF0
             self.info("Legacy DA2 CMD F0 is patched.")
@@ -85,6 +107,7 @@ class legacyext(metaclass=LogBase):
         dwords=length//4
         if length%4!=0:
             dwords+=1
+        #data = bytearray(b"".join(int.to_bytes(val,4,'little') for val in [self.legacy.read_reg32(addr + pos * 4) for pos in range(dwords)]))
         res = self.legacy.custom_F0(addr, dwords)
         data = bytearray(b"".join([int.to_bytes(val,4,'little') for val in res]))
         return data[:length]
@@ -224,6 +247,10 @@ class legacyext(metaclass=LogBase):
             rpmb2key = hwc.aes_hwcrypt(btype="dxcc", mode="rpmb2")
             self.info("Generating dxcc km key...")
             ikey = hwc.aes_hwcrypt(btype="dxcc", mode="itrustee")
+            #self.info("Generating dxcc platkey + provkey key...")
+            #platkey, provkey = hwc.aes_hwcrypt(btype="dxcc", mode="prov")
+            #self.info("Provkey     : " + hexlify(provkey).decode('utf-8'))
+            #self.info("Platkey     : " + hexlify(platkey).decode('utf-8'))
             if rpmbkey is not None:
                 self.info("RPMB        : " + hexlify(rpmbkey).decode('utf-8'))
                 self.config.hwparam.writesetting("rpmbkey",hexlify(rpmbkey).decode('utf-8'))
@@ -245,6 +272,12 @@ class legacyext(metaclass=LogBase):
                 self.info("PROV        : " + hexlify(provkey).decode('utf-8'))
                 self.config.hwparam.writesetting("provkey", hexlify(provkey).decode('utf-8'))
                 retval["provkey"] = hexlify(provkey).decode('utf-8')
+            """
+            hrid = self.xflash.get_hrid()
+            if hrid is not None:
+                self.info("HRID        : " + hexlify(hrid).decode('utf-8'))
+                open(os.path.join("logs", "hrid.txt"), "wb").write(hexlify(hrid))
+            """
             if hwcode == 0x699 and self.config.chipconfig.sej_base:
                 mtee3 = hwc.aes_hwcrypt(mode="mtee3", btype="sej")
                 if mtee3:

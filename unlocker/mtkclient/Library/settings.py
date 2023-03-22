@@ -24,7 +24,9 @@ class hwparam:
                 try:
                     self.paramsetting = json.loads(open(os.path.join(path,self.paramfile), "r").read())
                 except:
+                    #json file invalid, load nothing.
                     pass
+
 
 
     def loadsetting(self,key:str):

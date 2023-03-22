@@ -158,8 +158,8 @@ class progress:
         if telapsed > 0 and cur_iter > 0:
             testimated = (telapsed / cur_iter) * (max_iter)
             finishtime = starttime + testimated
-            finishtime = dt.datetime.fromtimestamp(finishtime).strftime("%H:%M:%S")
-            lefttime = testimated - telapsed
+            finishtime = dt.datetime.fromtimestamp(finishtime).strftime("%H:%M:%S")  # in time
+            lefttime = testimated - telapsed  # in seconds
             return int(telapsed), int(lefttime), finishtime
         else:
             return 0, 0, ""
@@ -439,18 +439,22 @@ class ColorFormatter(logging.Formatter):
     }
 
     def format(self, record, *args, **kwargs):
+        # if the corresponding logger has children, they may receive modified
+        # record, so we want to keep it intact
         new_record = copy.copy(record)
         if new_record.levelno in self.LOG_COLORS:
             pad = ""
             if new_record.name != "root":
                 print(new_record.name)
                 pad = "[LIB]: "
+            # we want levelname to be in different color, so let's modify it
             new_record.msg = "{pad}{color_begin}{msg}{color_end}".format(
                 pad=pad,
                 msg=new_record.msg,
                 color_begin=self.LOG_COLORS[new_record.levelno],
                 color_end=colorama.Style.RESET_ALL,
             )
+        # now we can let standart formatting take care of the rest
         return super(ColorFormatter, self).format(new_record, *args, **kwargs)
 
 
@@ -499,6 +503,7 @@ class LogBase(type):
             },
             "handlers": {
                 "root": {
+                    # "level": cls.__logger.level,
                     "formatter": "root",
                     "class": "logging.StreamHandler",
                     "stream": "ext://sys.stdout",
@@ -507,6 +512,7 @@ class LogBase(type):
             "loggers": {
                 "": {
                     "handlers": ["root"],
+                    # "level": cls.debuglevel,
                     "propagate": False
                 }
             },
@@ -593,9 +599,9 @@ class elf:
 
     def parse(self):
         self.elfclass = self.data[4]
-        if self.elfclass == 1:
+        if self.elfclass == 1:  # 32Bit
             start = 0x28
-        elif self.elfclass == 2:
+        elif self.elfclass == 2:  # 64Bit
             start = 0x34
         else:
             print("Error on parsing " + self.filename)
@@ -641,6 +647,7 @@ class patchtools:
                     return div
             div += 4
 
+        # if div is not found within positive offset, try negative offset
         div = 0
         while not found and div < 0x606:
             data = struct.pack("<I", offset - div)
@@ -653,6 +660,7 @@ class patchtools:
             div += 4
         return 0
 
+    # Usage: offset, "X24"
     def generate_offset_asm(self, offset, reg):
         div = self.generate_offset(offset)
         abase = ((offset + div) & 0xFFFF0000) >> 16
@@ -684,6 +692,7 @@ class patchtools:
         cs = Cs(CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN)
         instr = []
         for i in cs.disasm(code, size):
+            # print("0x%x:\t%s\t%s" % (i.address, i.mnemonic, i.op_str))
             instr.append("%s\t%s" % (i.mnemonic, i.op_str))
         return instr
 
@@ -697,6 +706,17 @@ class patchtools:
                 print(e.stat_count)
                 print(code[e.stat_count:e.stat_count + 10])
                 exit(0)
+                if self.bDebug:
+                    # walk every line to find the (first) error
+                    for idx, line in enumerate(code.splitlines()):
+                        print("%02d: %s" % (idx, line))
+                        if len(line) and line[0] != '.':
+                            try:
+                                encoding, count = ks.asm(line)
+                            except Exception as e:
+                                print("bummer: " + str(e))
+                else:
+                    exit(0)
         else:
             encoding, count = ks.asm(code)
 
@@ -711,6 +731,8 @@ class patchtools:
             sc += "%02x" % i
 
             count += 1
+            # if bDebug and count % 4 == 0:
+            #    out += ("\n")
 
         return out
 
@@ -746,6 +768,9 @@ class patchtools:
 
 
 def read_object(data: object, definition: object) -> object:
+    """
+    Unpacks a structure using the given data and definition.
+    """
     obj = {}
     object_size = 0
     pos = 0
@@ -759,6 +784,9 @@ def read_object(data: object, definition: object) -> object:
 
 
 def write_object(definition, *args):
+    """
+    Unpacks a structure using the given data and definition.
+    """
     obj = {}
     object_size = 0
     data = b""
@@ -778,6 +806,16 @@ def write_object(definition, *args):
 
 
 def print_progress(iteration, total, prefix='', suffix='', decimals=1, bar_length=100):
+    """
+    Call in a loop to create terminal progress bar
+    @params:
+        iteration   - Required  : current iteration (Int)
+        total       - Required  : total iterations (Int)
+        prefix      - Optional  : prefix string (Str)
+        suffix      - Optional  : suffix string (Str)
+        decimals    - Optional  : positive number of decimals in percent complete (Int)
+        bar_length  - Optional  : character length of bar (Int)
+    """
     str_format = "{0:." + str(decimals) + "f}"
     percents = str_format.format(100 * (iteration / float(total)))
     filled_length = int(round(bar_length * iteration / float(total)))

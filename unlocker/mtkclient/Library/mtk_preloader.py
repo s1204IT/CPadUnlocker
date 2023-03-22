@@ -3,17 +3,19 @@
 # (c) B.Kerler 2018-2021 GPLv3 License
 import os
 import logging
+import shutil
 from enum import Enum
 from struct import unpack, pack
 from binascii import hexlify
 from mtkclient.Library.utils import LogBase, logsetup
 from mtkclient.Library.error import ErrorHandler
+import time
 
-USBDL_BIT_EN = 0x00000001
-USBDL_BROM = 0x00000002
-USBDL_TIMEOUT_MASK = 0x0000FFFC
-USBDL_TIMEOUT_MAX = (USBDL_TIMEOUT_MASK >> 2)
-USBDL_MAGIC = 0x444C0000
+USBDL_BIT_EN = 0x00000001  # 1: download bit enabled
+USBDL_BROM = 0x00000002  # 0: usbdl by brom; 1: usbdl by bootloader
+USBDL_TIMEOUT_MASK = 0x0000FFFC  # 14-bit timeout: 0x0000~0x3FFE: second; 0x3FFFF: no timeout
+USBDL_TIMEOUT_MAX = (USBDL_TIMEOUT_MASK >> 2)  # maximum timeout indicates no timeout
+USBDL_MAGIC = 0x444C0000  # Brom will check this magic number
 MISC_LOCK_KEY_MAGIC = 0xAD98
 
 
@@ -44,6 +46,7 @@ class Preloader(metaclass=LogBase):
         PL_CAP0_SOCID_SUPPORT = (0x1 << 2)
 
     class Cmd(Enum):
+        # if CFG_PRELOADER_AS_DA
         SEND_PARTITION_DATA = b"\x70"
         JUMP_TO_PARTITION = b"\x71"
 
@@ -58,9 +61,14 @@ class Preloader(metaclass=LogBase):
         I2C_READ8 = b"\xB3"
         I2C_SET_SPEED = b"\xB4"
         I2C_INIT_EX = b"\xB6"
-        I2C_DEINIT_EX = b"\xB7"
-        I2C_WRITE8_EX = b"\xB8"
-
+        I2C_DEINIT_EX = b"\xB7"  # JUMP_MAUI
+        I2C_WRITE8_EX = b"\xB8"  # READY
+        """
+        / Boot-loader resposne from BLDR_CMD_READY (0xB8)
+        STATUS_READY                0x00        // secure RO is found and ready to serve
+        STATUS_SECURE_RO_NOT_FOUND  0x01        // secure RO is not found: first download? => dead end...
+        STATUS_SUSBDL_NOT_SUPPORTED 0x02        // BL didn't enable Secure USB DL
+        """
         I2C_READ8_EX = b"\xB9"
         I2C_SET_SPEED_EX = b"\xBA"
         GET_MAUI_FW_VER = b"\xBF"
@@ -72,7 +80,7 @@ class Preloader(metaclass=LogBase):
         PWR_DEINIT = b"\xC5"
         PWR_READ16 = b"\xC6"
         PWR_WRITE16 = b"\xC7"
-        CMD_C8 = b"\xC8"
+        CMD_C8 = b"\xC8"  # RE
 
         READ16 = b"\xD0"
         READ32 = b"\xD1"
@@ -86,10 +94,10 @@ class Preloader(metaclass=LogBase):
         SEND_ENV_PREPARE = b"\xD9"
         brom_register_access = b"\xDA"
         UART1_LOG_EN = b"\xDB"
-        UART1_SET_BAUDRATE = b"\xDC",
-        BROM_DEBUGLOG = b"\xDD",
-        JUMP_DA64 = b"\xDE",
-        GET_BROM_LOG_NEW = b"\xDF",
+        UART1_SET_BAUDRATE = b"\xDC",  # RE
+        BROM_DEBUGLOG = b"\xDD",  # RE
+        JUMP_DA64 = b"\xDE",  # RE
+        GET_BROM_LOG_NEW = b"\xDF",  # RE
 
         SEND_CERT = b"\xE0",
         GET_ME_ID = b"\xE1"
@@ -154,7 +162,7 @@ class Preloader(metaclass=LogBase):
         if tries == 10:
             return False
 
-        if not self.echo(self.Cmd.GET_HW_CODE.value):
+        if not self.echo(self.Cmd.GET_HW_CODE.value):  # 0xFD
             if not self.echo(self.Cmd.GET_HW_CODE.value):
                 self.error("Sync error. Please power off the device and retry.")
                 self.config.set_gui_status(self.config.tr("Sync error. Please power off the device and retry."))
@@ -181,7 +189,7 @@ class Preloader(metaclass=LogBase):
         if not skipwdt:
             if self.display:
                 self.info("Disabling Watchdog...")
-            self.setreg_disablewatchdogtimer(self.config.hwcode)
+            self.setreg_disablewatchdogtimer(self.config.hwcode)  # D4
         if self.display:
             self.info("HW code:\t\t\t" + hex(self.config.hwcode))
         self.config.target_config = self.get_target_config(self.display)
@@ -283,9 +291,10 @@ class Preloader(metaclass=LogBase):
     def reset_to_brom(self, en=True, timeout=0):
         usbdlreg = 0
 
+        # if anything is wrong and caused wdt reset, enter bootrom download mode #
         timeout = USBDL_TIMEOUT_MAX if timeout == 0 else timeout // 1000
         timeout <<= 2
-        timeout &= USBDL_TIMEOUT_MASK
+        timeout &= USBDL_TIMEOUT_MASK  # usbdl timeout cannot exceed max value
 
         usbdlreg |= timeout
         if en:
@@ -294,8 +303,10 @@ class Preloader(metaclass=LogBase):
             usbdlreg &= ~USBDL_BIT_EN
 
         usbdlreg &= ~USBDL_BROM
-        usbdlreg |= USBDL_MAGIC
+        # Add magic number for MT6582
+        usbdlreg |= USBDL_MAGIC  # | 0x444C0000
 
+        # set BOOT_MISC0 as watchdog resettable
         RST_CON = self.config.chipconfig.misc_lock + 8
         USBDL_FLAG = self.config.chipconfig.misc_lock - 0x20
         self.write32(self.config.chipconfig.misc_lock, MISC_LOCK_KEY_MAGIC)
@@ -349,14 +360,29 @@ class Preloader(metaclass=LogBase):
                         break
                     pos += dsize
                     length -= dsize
+                # self.usbwrite(data)
                 self.usbwrite(pack(">I", checksum))
 
     def setreg_disablewatchdogtimer(self, hwcode):
+        """
+        SetReg_DisableWatchDogTimer; BRom_WriteCmd32(): Reg 0x10007000[1]={ Value 0x22000000 }.
+        """
         addr, value = self.config.get_watchdog_addr()
 
-        res = self.write32(addr, value)
-        if res and hwcode == 0x6592:
-            res = self.write32(0x10000500, 0x22000000)
+        if hwcode in [0x6575, 0x6577]:
+            """
+            SoCs which share the same watchdog IP as mt6577 must use 16-bit I/O.
+            For example: mt6575, mt8317 and mt8377 (their hwcodes are 0x6575).
+            """
+            res = self.write16(addr, value)
+        else:
+            res = self.write32(addr, value)
+            if res and hwcode == 0x6592:
+                """
+                mt6592 has an additional watchdog register at 0x10000500.
+                TODO: verify if writing to this register is actually needed.
+                """
+                res = self.write32(0x10000500, 0x22000000)
         if not res:
             self.error("Received wrong SetReg_DisableWatchDogTimer response")
             return False
@@ -374,6 +400,7 @@ class Preloader(metaclass=LogBase):
         if self.usbwrite(self.Cmd.GET_BL_VER.value):
             res = self.usbread(1)
             if res == self.Cmd.GET_BL_VER.value:
+                # We are in boot rom ...
                 self.info("BROM mode detected.")
             self.mtk.config.blver = unpack("B", res)[0]
             return self.mtk.config.blver
@@ -450,7 +477,7 @@ class Preloader(metaclass=LogBase):
                 self.error(f"Jump_DA Resp2 {str(e)} , addr {hex(addr)}")
                 return False
             if resaddr == addr:
-                self.echo(b"\x01")
+                self.echo(b"\x01")  # for 64Bit, 0 for 32Bit
                 try:
                     status = self.rword()
                 except Exception as e:
@@ -508,7 +535,7 @@ class Preloader(metaclass=LogBase):
         return False
 
     def get_brom_log(self):
-        if self.echo(self.Cmd.BROM_DEBUGLOG.value):
+        if self.echo(self.Cmd.BROM_DEBUGLOG.value):  # 0xDD
             length = self.rdword()
             logdata = self.rbyte(length)
             return logdata
@@ -517,7 +544,7 @@ class Preloader(metaclass=LogBase):
         return b""
 
     def get_brom_log_new(self):
-        if self.echo(self.Cmd.GET_BROM_LOG_NEW.value):
+        if self.echo(self.Cmd.GET_BROM_LOG_NEW.value):  # 0xDF
             length = self.rdword()
             logdata = self.rbyte(length)
             status = self.rword()
@@ -528,7 +555,7 @@ class Preloader(metaclass=LogBase):
         return b""
 
     def get_hwcode(self):
-        res = self.sendcmd(self.Cmd.GET_HW_CODE.value, 4)
+        res = self.sendcmd(self.Cmd.GET_HW_CODE.value, 4)  # 0xFD
         return unpack(">HH", res)
 
     def brom_register_access(self, address, length, data=None, check_status=True):
@@ -570,19 +597,19 @@ class Preloader(metaclass=LogBase):
             return data
 
     def get_plcap(self):
-        res = self.sendcmd(self.Cmd.GET_PL_CAP.value, 8)
+        res = self.sendcmd(self.Cmd.GET_PL_CAP.value, 8)  # 0xFB
         self.mtk.config.plcap = unpack(">II", res)
         return self.mtk.config.plcap
 
     def get_hw_sw_ver(self):
-        res = self.sendcmd(self.Cmd.GET_HW_SW_VER.value, 8)
+        res = self.sendcmd(self.Cmd.GET_HW_SW_VER.value, 8)  # 0xFC
         return unpack(">HHHH", res)
 
     def get_meid(self):
         if self.usbwrite(self.Cmd.GET_BL_VER.value):
             res = self.usbread(1)
             if res == self.Cmd.GET_BL_VER.value:
-                self.usbwrite(self.Cmd.GET_ME_ID.value)
+                self.usbwrite(self.Cmd.GET_ME_ID.value)  # 0xE1
                 if self.usbread(1) == self.Cmd.GET_ME_ID.value:
                     length = unpack(">I", self.usbread(4))[0]
                     self.mtk.config.meid = self.usbread(length)
@@ -600,7 +627,7 @@ class Preloader(metaclass=LogBase):
         if self.usbwrite(self.Cmd.GET_BL_VER.value):
             res = self.usbread(1)
             if res == self.Cmd.GET_BL_VER.value:
-                self.usbwrite(self.Cmd.GET_SOC_ID.value)
+                self.usbwrite(self.Cmd.GET_SOC_ID.value)  # 0xE7
                 if self.usbread(1) == self.Cmd.GET_SOC_ID.value:
                     length = unpack(">I", self.usbread(4))[0]
                     self.mtk.config.socid = self.usbread(length)
@@ -617,7 +644,7 @@ class Preloader(metaclass=LogBase):
         if len(data + sigdata) % 2 != 0:
             data += b"\x00"
         for x in range(0, len(data), 2):
-            gen_chksum ^= unpack("<H", data[x:x + 2])[0]
+            gen_chksum ^= unpack("<H", data[x:x + 2])[0]  # 3CDC
         if len(data) & 1 != 0:
             gen_chksum ^= data[-1:]
         return gen_chksum, data
@@ -631,6 +658,7 @@ class Preloader(metaclass=LogBase):
             self.usbwrite(data[pos:pos + size])
             bytestowrite -= size
             pos += size
+        # self.usbwrite(b"")
         try:
             res = self.rword(2)
             if isinstance(res, list):
@@ -653,7 +681,7 @@ class Preloader(metaclass=LogBase):
     def send_da(self, address, size, sig_len, dadata):
         self.config.set_gui_status(self.config.tr("Sending DA."))
         gen_chksum, data = self.prepare_data(dadata[:-sig_len], dadata[-sig_len:], size)
-        if not self.echo(self.Cmd.SEND_DA.value):
+        if not self.echo(self.Cmd.SEND_DA.value):  # 0xD7
             self.error(f"Error on DA_Send cmd")
             self.config.set_gui_status(self.config.tr("Error on DA_Send cmd"))
             return False

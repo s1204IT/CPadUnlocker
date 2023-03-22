@@ -17,6 +17,7 @@ from mtkclient.Library.utils import print_progress
 from mtkclient.Library.error import ErrorHandler
 from mtkclient.Library.mtk_da_cmd import DA_handler
 from mtkclient.Library.gpt import gpt_settings
+import argparse
 metamodes = "[FASTBOOT, FACTFACT, METAMETA, FACTORYM, ADVEMETA, AT+NBOOT]"
 
 class ArgHandler(metaclass=LogBase):
@@ -182,9 +183,14 @@ class Main(metaclass=LogBase):
                         if stage2addr is None:
                             stage2addr = 0x201000
 
+                    # ###### Send stage2
+                    # magic
                     mtk.port.usbwrite(pack(">I", 0xf00dd00d))
+                    # cmd write
                     mtk.port.usbwrite(pack(">I", 0x4000))
+                    # address
                     mtk.port.usbwrite(pack(">I", stage2addr))
+                    # length
                     mtk.port.usbwrite(pack(">I", len(stage2data)))
                     bytestowrite = len(stage2data)
                     pos = 0
@@ -193,6 +199,7 @@ class Main(metaclass=LogBase):
                         if mtk.port.usbwrite(stage2data[pos:pos + size]):
                             bytestowrite -= size
                             pos += size
+                    # mtk.port.usbwrite(b"")
                     time.sleep(0.1)
                     flag = mtk.port.rdword()
                     if flag != 0xD0D0D0D0:
@@ -222,8 +229,18 @@ class Main(metaclass=LogBase):
                             self.info("Stage2 verification passed.")
                             mtk.config.set_gui_status(mtk.config.tr("Stage2 verification passed."))
 
+                    # ####### Kick Watchdog
+                    # magic
+                    # mtk.port.usbwrite(pack("<I", 0xf00dd00d))
+                    # cmd kick_watchdog
+                    # mtk.port.usbwrite(pack("<I", 0x3001))
+
+                    # ######### Jump stage1
+                    # magic
                     mtk.port.usbwrite(pack(">I", 0xf00dd00d))
+                    # cmd jump
                     mtk.port.usbwrite(pack(">I", 0x4001))
+                    # address
                     mtk.port.usbwrite(pack(">I", stage2addr))
                     self.info("Done jumping stage2 at %08X" % stage2addr)
                     mtk.config.set_gui_status(mtk.config.tr("Done jumping stage2 at %08X" % stage2addr))
@@ -256,6 +273,8 @@ class Main(metaclass=LogBase):
                                 return
                             else:
                                 self.info("Successfully connected to pl.")
+                                # mtk.preloader.get_hw_sw_ver()
+                                # status=mtk.preloader.jump_to_partition(b"") # Do not remove !
                 else:
                     self.error("Error on jumping to pl")
                     return
@@ -333,6 +352,7 @@ class Main(metaclass=LogBase):
                 self.close()
                 return
             commands=open(self.args.script,"r").read().splitlines()
+            # DA / FLash commands start here
             try:
                 preloader = self.args.preloader
             except:
@@ -388,6 +408,23 @@ class Main(metaclass=LogBase):
                         self.info("Preloader dumped as: " + filename)
                 rmtk.port.close()
             self.close()
+        elif cmd == "dumpsram":
+            if mtk.preloader.init():
+                rmtk = mtk.crasher()
+                if rmtk is None:
+                    sys.exit(0)
+                if rmtk.port.cdc.vid != 0xE8D and rmtk.port.cdc.pid != 0x0003:
+                    self.warning("We couldn't enter preloader.")
+                filename = self.args.filename
+                if filename is None:
+                    cpu = ""
+                    if rmtk.config.cpu != "":
+                        cpu = "_" + rmtk.config.cpu
+                    filename = "sram" + cpu + "_" + hex(rmtk.config.hwcode)[2:] + ".bin"
+                plt = PLTools(rmtk, self.__logger.level)
+                plt.run_dump_brom(filename, self.args.ptype, loader="generic_sram_payload.bin")
+                rmtk.port.close()
+            self.close()
         elif cmd == "brute":
             self.info("Kamakiri / DA Bruteforce run")
             rmtk = Mtk(config=mtk.config, loglevel=self.__logger.level, serialportname=mtk.port.serialportname)
@@ -403,7 +440,7 @@ class Main(metaclass=LogBase):
             if mtk.config.chipconfig.pl_payload_addr is not None:
                 plstageaddr = mtk.config.chipconfig.pl_payload_addr
             else:
-                plstageaddr = 0x40001000
+                plstageaddr = 0x40001000 #0x40200000  # 0x40001000
             if self.args.pl is None:
                 plstage = os.path.join(mtk.pathconfig.get_payloads_path(), "pl.bin")
             else:
@@ -468,7 +505,8 @@ class Main(metaclass=LogBase):
                         if self.args.startpartition is not None:
                             partition = self.args.startpartition
                             self.info("Booting to : " + partition)
-                            status = mtk.preloader.jump_to_partition(partition)
+                            #mtk.preloader.send_partition_data(partition, mtk.patch_preloader_security(pldata))
+                            status = mtk.preloader.jump_to_partition(partition)  # Do not remove !
 
                         if self.args.offset is not None and self.args.length is not None:
                             offset = getint(self.args.offset)
@@ -490,6 +528,8 @@ class Main(metaclass=LogBase):
                                         break
                                     print(hexlify(b"".join([pack("<I",val) for val in res])).decode('utf-8'))
 
+                            #for val in res:
+                            #    print(hex(val))
                             if status != 0x0:
                                 self.error("Error on jumping to partition: " + self.eh.status(status))
                             else:
@@ -566,6 +606,7 @@ class Main(metaclass=LogBase):
             mtk.port.close()
             self.close()
         else:
+            # DA / FLash commands start here
             try:
                 preloader = self.args.preloader
             except:

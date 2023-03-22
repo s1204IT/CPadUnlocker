@@ -1,0 +1,3 @@
+da seccfg unlock
+r boot ..\boot.img
+r lk ..\lk.bin

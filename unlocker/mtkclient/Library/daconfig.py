@@ -4,7 +4,7 @@
 import logging
 import os
 from struct import unpack
-from mtkclient.Library.utils import LogBase, logsetup
+from mtkclient.Library.utils import LogBase, read_object, logsetup
 from mtkclient.config.payloads import pathconfig
 from mtkclient.config.brom_config import damodes
 from mtkclient.Library.utils import structhelper
@@ -200,6 +200,8 @@ class DAconfig(metaclass=LogBase):
     def parse_da_loader(self, loader):
         try:
             with open(loader, 'rb') as bootldr:
+                # data = bootldr.read()
+                # self.debug(hexlify(data).decode('utf-8'))
                 bootldr.seek(0x68)
                 count_da = unpack("<I", bootldr.read(4))[0]
                 for i in range(0, count_da):
@@ -237,12 +239,3 @@ class DAconfig(metaclass=LogBase):
         if self.da_loader is None:
             self.error("No da_loader config set up")
         return self.da_loader
-
-if __name__ == "__main__":
-    from mtkclient.Library.mtk_class import Mtk
-    from mtkclient.Library.mtk_main import Mtk_Config
-    config = Mtk_Config(loglevel=logging.INFO, gui=None,
-                        guiprogress=None)
-    mtkg=Mtk(config=config)
-    dac=DAconfig(mtk=mtkg)
-    dac.extract_emi("/tmp/preloader_meizu6795_lwt_l1.bin")

@@ -1,0 +1,5 @@
+w boot ..\magisk.img
+w lk ..\lk.bin
+w lk2 ..\lk.bin
+e userdata,metadata
+reset

@@ -1,6 +1,8 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 # (c) B.Kerler 2018-2021
+import serial
+import serial.tools.list_ports
 import inspect
 import traceback
 from binascii import hexlify
@@ -36,14 +38,11 @@ class DeviceClass(metaclass=LogBase):
             fh = logging.FileHandler(logfilename, encoding='utf-8')
             self.__logger.addHandler(fh)
 
-    def connect(self, EP_IN=-1, EP_OUT=-1):
+    def connect(self, options):
         raise NotImplementedError()
 
     def setportname(self, portname:str):
         raise NotImplementedError()
-
-    def set_fast_mode(self, enabled:bool):
-        raise NotImplementedError
 
     def close(self, reset=False):
         raise NotImplementedError()

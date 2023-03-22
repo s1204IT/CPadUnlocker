@@ -27,19 +27,8 @@ if ($? -ne $true) {
     exit 1
 }
 
-Write-Output "ドライバーをセットアップします..."
-Invoke-WebRequest -Uri https://catalog.s.download.windowsupdate.com/d/msdownload/update/driver/drvs/2016/10/20931647_c83f434a6c4ffff12b48edefe161d6085bb63bcd.cab -OutFile .\mtk.cab -UseBasicParsing
-Invoke-WebRequest -Uri https://catalog.s.download.windowsupdate.com/c/msdownload/update/driver/drvs/2016/08/20913465_17e56bbd9fe9351b9477154c0414ce86e21a42bb.cab -OutFile .\mtl-port.cab -UseBasicParsing
-New-Item .\cab -ItemType Directory -Force | Out-Null
-expand.exe mtk.cab -F:* cab | Out-Null
-pnputil.exe /add-driver .\cab\android_winusb.inf /install | Out-Null
-Remove-Item -Recurse -Force .\cab\*
-expand.exe mtk-port.cab -F:* cab | Out-Null
-pnputil.exe /add-driver .\cab\*.inf /install | Out-Null
-Remove-Item -Recurse -Force .\*.cab,.\cab\
-
 Clear-Host
 Write-Output "完了しました！`r`n"
-Read-Host "Enter キーを押して再起動"
-shutdown.exe /r /f /t 0
+Read-Host "Enter キーを押して終了"
+Start-Process -FilePath ms-settings:windowsupdate
 exit 0

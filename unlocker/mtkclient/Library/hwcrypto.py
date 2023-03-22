@@ -2,12 +2,14 @@
 # -*- coding: utf-8 -*-
 # (c) B.Kerler 2018-2021 GPLv3 License
 import logging
+import time
 
 from mtkclient.Library.utils import LogBase, logsetup
 from mtkclient.Library.hwcrypto_gcpu import GCpu
 from mtkclient.Library.hwcrypto_dxcc import dxcc
 from mtkclient.Library.hwcrypto_sej import sej
 from mtkclient.Library.cqdma import cqdma
+from struct import unpack
 
 
 class crypto_setup:
@@ -61,13 +63,9 @@ class hwcrypto(metaclass=LogBase):
             if encrypt:
                 if mode == "cbc":
                     return self.sej.hw_aes128_cbc_encrypt(buf=data, encrypt=True)
-                elif mode == "sst":
-                    return self.sej.hw_aes128_sst_encrypt(buf=data, encrypt=True)
             else:
                 if mode == "cbc":
                     return self.sej.hw_aes128_cbc_encrypt(buf=data, encrypt=False)
-                elif mode == "sst":
-                    return self.sej.hw_aes128_sst_encrypt(buf=data, encrypt=False)
             if mode == "rpmb":
                 return self.sej.generate_rpmb(meid=data, otp=otp)
             elif mode == "mtee":
@@ -93,8 +91,6 @@ class hwcrypto(metaclass=LogBase):
                 return self.dxcc.generate_rpmb(2)
             elif mode == "rpmb":
                 return self.dxcc.generate_rpmb()
-            elif mode == "mirpmb":
-                return self.dxcc.generate_rpmb_mitee()
             elif mode == "itrustee":
                 return self.dxcc.generate_itrustee_fbe()
             elif mode == "prov":

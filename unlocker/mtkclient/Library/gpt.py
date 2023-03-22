@@ -6,7 +6,7 @@ import os
 import sys
 import logging
 from enum import Enum
-from struct import unpack
+from struct import unpack, pack
 from binascii import hexlify
 
 try:

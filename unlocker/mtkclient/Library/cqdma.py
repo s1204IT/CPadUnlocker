@@ -66,7 +66,7 @@ class cqdma(metaclass=LogBase):
 
     def cqread32(self, addr, dwords):
         res = bytearray()
-        dst_addr = self.chipconfig.ap_dma_mem
+        dst_addr = self.chipconfig.ap_dma_mem  # AP_DMA_IrDA_o_MEM_ADDR (any DMA mem addr reg)
         if self.cqdma_base is not None:
             for i in range(dwords):
                 self.reg.CQDMA_SRC = [addr + (i * 4)]
@@ -80,7 +80,7 @@ class cqdma(metaclass=LogBase):
         return res
 
     def cqwrite32(self, addr, dwords):
-        dst_addr = self.setup.ap_dma_mem
+        dst_addr = self.setup.ap_dma_mem  # AP_DMA_IrDA_o_MEM_ADDR (any DMA mem addr reg)
         if self.cqdma_base is not None:
             for i in range(len(dwords)):
                 self.write32(dst_addr, [dwords[i]])

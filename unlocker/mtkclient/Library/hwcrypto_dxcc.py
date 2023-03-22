@@ -4,7 +4,7 @@
 
 # DXCC = Discretix CryptoCell
 
-import logging
+import logging, os
 import hashlib
 from struct import pack
 from Cryptodome.Util.number import bytes_to_long
@@ -87,13 +87,17 @@ AES_CCM_TAG_LENGTH_MIN = 4
 AES_CCM_TAG_LENGTH_MAX = 16
 DES_IV_SIZE_IN_BYTES = 8
 
+# Use constant counter ID and AXI ID
 SB_COUNTER_ID = 0
 
+# The AES block size in words and in bytes
 AES_BLOCK_SIZE_IN_WORDS = 4
 
+# The size of the IV or counter buffer
 AES_IV_COUNTER_SIZE_IN_WORDS = AES_BLOCK_SIZE_IN_WORDS
 AES_IV_COUNTER_SIZE_IN_BYTES = (AES_IV_COUNTER_SIZE_IN_WORDS * 4)
 
+# The size of the AES KEY in words and bytes
 AES_KEY_SIZE_IN_WORDS = AES_BLOCK_SIZE_IN_WORDS
 AES_KEY_SIZE_IN_BYTES = (AES_KEY_SIZE_IN_WORDS * 4)
 
@@ -102,11 +106,13 @@ AES_Key128Bits_SIZE_IN_BYTES = AES_BLOCK_SIZE_IN_BYTES
 AES_Key256Bits_SIZE_IN_WORDS = 8
 AES_Key256Bits_SIZE_IN_BYTES = (AES_Key256Bits_SIZE_IN_WORDS * 4)
 
+# Hash IV+Length
 HASH_DIGEST_SIZE_IN_WORDS = 8
 HASH_DIGEST_SIZE_IN_BYTES = (HASH_DIGEST_SIZE_IN_WORDS * 4)
 HASH_LENGTH_SIZE_IN_WORDS = 4
 HASH_LENGTH_SIZE_IN_BYTES = (HASH_LENGTH_SIZE_IN_WORDS * 4)
 
+# Offset, shift, size
 AES = {
     "KEY_0_0": [0x400, 0x0, 0x20],
     "KEY_0_1": [0x404, 0x0, 0x20],
@@ -764,6 +770,96 @@ class HwDesKeySize:
     DES_THREE_KEYS = 2
 
 
+"""
+
+/* SeP context size */
+#ifndef SEP_CTX_SIZE_LOG2
+#if (SEP_SUPPORT_SHA > 256)
+SEP_CTX_SIZE_LOG2 8
+#else
+SEP_CTX_SIZE_LOG2 7
+#endif
+#endif
+SEP_CTX_SIZE (1<<SEP_CTX_SIZE_LOG2)
+SEP_CTX_SIZE_WORDS (SEP_CTX_SIZE >> 2)
+
+SEP_DES_IV_SIZE 8
+SEP_DES_BLOCK_SIZE 8
+
+SEP_DES_ONE_KEY_SIZE 8
+SEP_DES_DOUBLE_KEY_SIZE 16
+SEP_DES_TRIPLE_KEY_SIZE 24
+SEP_DES_KEY_SIZE_MAX SEP_DES_TRIPLE_KEY_SIZE
+
+SEP_AES_IV_SIZE 16
+SEP_AES_IV_SIZE_WORDS (SEP_AES_IV_SIZE >> 2)
+
+SEP_AES_BLOCK_SIZE 16
+SEP_AES_BLOCK_SIZE_WORDS 4
+
+SEP_AES_128_BIT_KEY_SIZE 16
+SEP_AES_128_BIT_KEY_SIZE_WORDS	(SEP_AES_128_BIT_KEY_SIZE >> 2)
+SEP_AES_192_BIT_KEY_SIZE 24
+SEP_AES_192_BIT_KEY_SIZE_WORDS	(SEP_AES_192_BIT_KEY_SIZE >> 2)
+SEP_AES_256_BIT_KEY_SIZE 32
+SEP_AES_256_BIT_KEY_SIZE_WORDS	(SEP_AES_256_BIT_KEY_SIZE >> 2)
+SEP_AES_KEY_SIZE_MAX			SEP_AES_256_BIT_KEY_SIZE
+SEP_AES_KEY_SIZE_WORDS_MAX		(SEP_AES_KEY_SIZE_MAX >> 2)
+
+SEP_MD5_DIGEST_SIZE 16
+SEP_SHA1_DIGEST_SIZE 20
+SEP_SHA224_DIGEST_SIZE 28
+SEP_SHA256_DIGEST_SIZE 32
+SEP_SHA256_DIGEST_SIZE_IN_WORDS 8
+SEP_SHA384_DIGEST_SIZE 48
+SEP_SHA512_DIGEST_SIZE 64
+
+SEP_SHA1_BLOCK_SIZE 64
+SEP_SHA1_BLOCK_SIZE_IN_WORDS 16
+SEP_MD5_BLOCK_SIZE 64
+SEP_MD5_BLOCK_SIZE_IN_WORDS 16
+SEP_SHA224_BLOCK_SIZE 64
+SEP_SHA256_BLOCK_SIZE 64
+SEP_SHA256_BLOCK_SIZE_IN_WORDS 16
+SEP_SHA1_224_256_BLOCK_SIZE 64
+SEP_SHA384_BLOCK_SIZE 128
+SEP_SHA512_BLOCK_SIZE 128
+
+#if (SEP_SUPPORT_SHA > 256)
+SEP_DIGEST_SIZE_MAX SEP_SHA512_DIGEST_SIZE
+SEP_HASH_BLOCK_SIZE_MAX SEP_SHA512_BLOCK_SIZE /*1024b*/
+#else /* Only up to SHA256 */
+SEP_DIGEST_SIZE_MAX SEP_SHA256_DIGEST_SIZE
+SEP_HASH_BLOCK_SIZE_MAX SEP_SHA256_BLOCK_SIZE /*512b*/
+#endif
+
+SEP_HMAC_BLOCK_SIZE_MAX SEP_HASH_BLOCK_SIZE_MAX
+
+SEP_RC4_KEY_SIZE_MIN 1
+SEP_RC4_KEY_SIZE_MAX 20
+SEP_RC4_STATE_SIZE 264
+
+SEP_C2_KEY_SIZE_MAX 16
+SEP_C2_BLOCK_SIZE 8
+
+SEP_MULTI2_SYSTEM_KEY_SIZE 		32
+SEP_MULTI2_DATA_KEY_SIZE 		8
+SEP_MULTI2_SYSTEM_N_DATA_KEY_SIZE 	(SEP_MULTI2_SYSTEM_KEY_SIZE + SEP_MULTI2_DATA_KEY_SIZE)
+#define	SEP_MULTI2_BLOCK_SIZE					8
+#define	SEP_MULTI2_IV_SIZE					8
+#define	SEP_MULTI2_MIN_NUM_ROUNDS				8
+#define	SEP_MULTI2_MAX_NUM_ROUNDS				128
+
+
+SEP_ALG_MAX_BLOCK_SIZE SEP_HASH_BLOCK_SIZE_MAX
+
+SEP_MAX_COMBINED_ENGINES 4
+
+SEP_MAX_CTX_SIZE (max(sizeof(struct sep_ctx_rc4), \
+				sizeof(struct sep_ctx_cache_entry)))
+"""
+
+
 def hw_desc_init():
     res = [0, 0, 0, 0, 0, 0]
     return res
@@ -930,7 +1026,7 @@ class dxcc_reg:
 
 class dxcc(metaclass=LogBase):
     DX_HOST_IRR = 0xA00
-    DX_HOST_ICR = 0xA08
+    DX_HOST_ICR = 0xA08  # DX_CC = (HOST_RGF, HOST_ICR)
     DX_DSCRPTR_QUEUE0_WORD0 = 0xE80
     DX_DSCRPTR_QUEUE0_WORD1 = 0xE84
     DX_DSCRPTR_QUEUE0_WORD2 = 0xE88
@@ -938,7 +1034,7 @@ class dxcc(metaclass=LogBase):
     DX_DSCRPTR_QUEUE0_WORD4 = 0xE90
     DX_DSCRPTR_QUEUE0_WORD5 = 0xE94
     DX_DSCRPTR_QUEUE0_CONTENT = 0xE9C
-    DX_HOST_SEP_HOST_GPR0 = 0xA80
+    DX_HOST_SEP_HOST_GPR0 = 0xA80  # DX_HOST_SEP_HOST_GPR0_REG_OFFSET
     DX_HOST_SEP_HOST_GPR1 = 0xA88
     DX_HOST_SEP_HOST_GPR2 = 0xA90
     DX_HOST_SEP_HOST_GPR3 = 0xA9C
@@ -957,6 +1053,7 @@ class dxcc(metaclass=LogBase):
         return
 
     def sasi_paldmamap(self, value1):
+        # value2=value1
         return value1
 
     def sasi_sb_adddescsequence(self, data):
@@ -1022,16 +1119,6 @@ class dxcc(metaclass=LogBase):
         self.tzcc_clk(0)
         return rpmbkey
 
-    def generate_rpmb_mitee(self):
-        rpmb_ikey = bytes.fromhex("AD1AC6B4BDF4EDB7")
-        rpmb_salt = bytes.fromhex("69EF6584")
-        keylength = 0x10
-        self.tzcc_clk(1)
-        dstaddr = self.da_payload_addr - 0x300
-        rpmbkey = self.SBROM_KeyDerivation(1, rpmb_ikey, rpmb_salt, keylength, dstaddr)
-        self.tzcc_clk(0)
-        return rpmbkey
-
     def salt_func(self, value):
         while True:
             val=self.read32(self.dxcc_base+(0x2AF*4))&1
@@ -1052,6 +1139,11 @@ class dxcc(metaclass=LogBase):
         dstaddr = self.da_payload_addr - 0x300
 
         salt = hashlib.sha256(bytes.fromhex(oem_pubk)).digest()
+        """
+        salt = bytearray(b"\x00"*0x20)
+        for i in range(8):
+            salt[i*4]=self.salt_func(0x10+i)
+        """
         provkey = self.SBROM_KeyDerivation(HwCryptoKey.PROVISIONING_KEY, plat_key, salt, 0x10, dstaddr)
         while True:
             val = self.read32(self.dxcc_base + 0xAF4) & 1
@@ -1072,6 +1164,7 @@ class dxcc(metaclass=LogBase):
         self.sasi_sb_adddescsequence(pdesc)
         dstaddr = self.da_payload_addr - 0x300
         self.SB_HalWaitDescCompletion()
+        # data=self.read32(0x200D90)
         self.tzcc_clk(0)
         return platkey, provkey
 
@@ -1125,12 +1218,12 @@ class dxcc(metaclass=LogBase):
         data = []
         self.SB_HalClearInterruptBit()
         val = self.sasi_paldmamap(0)
-        data.append(0x0)
-        data.append(0x8000011)
-        data.append(destptr)
-        data.append(0x8000012)
-        data.append(0x100)
-        data.append((destptr >> 32) << 16)
+        data.append(0x0)  # 0
+        data.append(0x8000011)  # 1 #DIN_DMA|DOUT_DMA|DIN_CONST
+        data.append(destptr)  # 2
+        data.append(0x8000012)  # 3
+        data.append(0x100)  # 4
+        data.append((destptr >> 32) << 16)  # 5
         self.sasi_sb_adddescsequence(data)
         while True:
             if self.SB_CryptoWait() & 4 != 0:
@@ -1150,56 +1243,60 @@ class dxcc(metaclass=LogBase):
         ivSramAddr = 0
         if aesKeyType == HwCryptoKey.ROOT_KEY:
             if self.read32(self.dxcc_base + self.DX_HOST_SEP_HOST_GPR4) & 2 != 0:
-                keySizeInBytes = 0x20
+                keySizeInBytes = 0x20  # SEP_AES_256_BIT_KEY_SIZE
             else:
-                keySizeInBytes = 0x10
+                keySizeInBytes = 0x10  # SEP_AES_128_BIT_KEY_SIZE
         else:
-            keySizeInBytes = 0x10
+            keySizeInBytes = 0x10  # SEP_AES_128_BIT_KEY_SIZE
         self.SB_HalInit()
 
         pdesc = hw_desc_init()
-        pdesc = hw_desc_set_cipher_mode(pdesc, sep_cipher_mode.SEP_CIPHER_CMAC)
+        pdesc = hw_desc_set_cipher_mode(pdesc, sep_cipher_mode.SEP_CIPHER_CMAC)  # desc[4]=0x1C00
         pdesc = hw_desc_set_cipher_config0(pdesc, DescDirection.DESC_DIRECTION_ENCRYPT_ENCRYPT)
-        pdesc = hw_desc_set_key_size_aes(pdesc, keySizeInBytes)
+        pdesc = hw_desc_set_key_size_aes(pdesc, keySizeInBytes)  # desc[4]=0x801C00
         pdesc = hw_desc_set_din_sram(pdesc, ivSramAddr, AES_IV_COUNTER_SIZE_IN_BYTES)
-        pdesc = hw_desc_set_din_const(pdesc, 0, AES_IV_COUNTER_SIZE_IN_BYTES)
-        pdesc = hw_desc_set_flow_mode(pdesc, FlowMode.S_DIN_to_AES)
-        pdesc = hw_desc_set_setup_mode(pdesc, SetupOp.SETUP_LOAD_STATE0)
+        pdesc = hw_desc_set_din_const(pdesc, 0, AES_IV_COUNTER_SIZE_IN_BYTES)  # desc[1]=0x8000041
+        pdesc = hw_desc_set_flow_mode(pdesc, FlowMode.S_DIN_to_AES)  # desc[4]=0x801C20
+        pdesc = hw_desc_set_setup_mode(pdesc, SetupOp.SETUP_LOAD_STATE0)  # desc[4]=0x1801C20
+        #pdesc[1] |= 0x8000000 #
         self.sasi_sb_adddescsequence(pdesc)
 
+        # Load key
         mdesc = hw_desc_init()
         if aesKeyType == HwCryptoKey.USER_KEY:
             keySramAddr = pInternalKey
             mdesc = hw_desc_set_din_sram(mdesc, keySramAddr, AES_Key128Bits_SIZE_IN_BYTES)
-        mdesc = hw_desc_set_cipher_do(mdesc, aesKeyType)
-        mdesc = hw_desc_set_cipher_mode(mdesc, sep_cipher_mode.SEP_CIPHER_CMAC)
+        mdesc = hw_desc_set_cipher_do(mdesc, aesKeyType)  # desc[4]=0x8000
+        mdesc = hw_desc_set_cipher_mode(mdesc, sep_cipher_mode.SEP_CIPHER_CMAC)  # desc[4]=0x9C00
         mdesc = hw_desc_set_cipher_config0(mdesc, DescDirection.DESC_DIRECTION_ENCRYPT_ENCRYPT)
-        mdesc = hw_desc_set_key_size_aes(mdesc, keySizeInBytes)
-        mdesc = hw_desc_set_flow_mode(mdesc, FlowMode.S_DIN_to_AES)
-        mdesc = hw_desc_set_setup_mode(mdesc, SetupOp.SETUP_LOAD_KEY0)
+        mdesc = hw_desc_set_key_size_aes(mdesc, keySizeInBytes)  # desc[4]=0x809C00
+        mdesc = hw_desc_set_flow_mode(mdesc, FlowMode.S_DIN_to_AES)  # desc[4]=0x809C20
+        mdesc = hw_desc_set_setup_mode(mdesc, SetupOp.SETUP_LOAD_KEY0)  # desc[4]=0x4809C20
         mdesc[4] |= ((aesKeyType >> 2) & 3) << 20
         self.sasi_sb_adddescsequence(mdesc)
 
+        # Process input data
         rdesc = hw_desc_init()
         if dmaMode == DmaMode.DMA_SRAM:
             rdesc = hw_desc_set_din_sram(rdesc, pDataIn, blockSize)
         else:
             rdesc = hw_desc_set_din_type(rdesc, DmaMode.DMA_DLLI, pDataIn, blockSize, SB_AXI_ID,
-                                         AXI_SECURE)
-        rdesc = hw_desc_set_flow_mode(rdesc, FlowMode.DIN_AES_DOUT)
+                                         AXI_SECURE)  # desc[1]=0x3E, desc[0]=0x200E18
+        rdesc = hw_desc_set_flow_mode(rdesc, FlowMode.DIN_AES_DOUT)  # desc[4]=1
         self.sasi_sb_adddescsequence(rdesc)
 
         if aesKeyType != HwCryptoKey.PROVISIONING_KEY:
             xdesc = hw_desc_init()
-            xdesc = hw_desc_set_cipher_mode(xdesc, sep_cipher_mode.SEP_CIPHER_CMAC)
+            xdesc = hw_desc_set_cipher_mode(xdesc, sep_cipher_mode.SEP_CIPHER_CMAC)  # desc[4]=0x1C00
             xdesc = hw_desc_set_cipher_config0(xdesc, DescDirection.DESC_DIRECTION_ENCRYPT_ENCRYPT)
-            xdesc = hw_desc_set_setup_mode(xdesc, SetupOp.SETUP_WRITE_STATE0)
-            xdesc = hw_desc_set_flow_mode(xdesc, FlowMode.S_AES_to_DOUT)
+            xdesc = hw_desc_set_setup_mode(xdesc, SetupOp.SETUP_WRITE_STATE0)  # desc[4]=0x8001C00
+            xdesc = hw_desc_set_flow_mode(xdesc, FlowMode.S_AES_to_DOUT)  # desc[4]=0x8001C26
             if dmaMode == DmaMode.DMA_SRAM:
                 xdesc = hw_desc_set_dout_sram(xdesc, pDataOut, AES_BLOCK_SIZE_IN_BYTES)
             else:
                 xdesc = hw_desc_set_dout_dlli(xdesc, pDataOut, AES_BLOCK_SIZE_IN_BYTES, SB_AXI_ID,
-                                              0)
+                                              0)  # desc[2]=0x200E08, desc[3]=0x42
+            # xdesc = hw_desc_set_din_sram(xdesc, 0, 0)
             xdesc = hw_desc_set_din_nodma(xdesc, 0, 0)
             self.sasi_sb_adddescsequence(xdesc)
         return self.SB_HalWaitDescCompletion() == 0
@@ -1215,7 +1312,7 @@ class dxcc(metaclass=LogBase):
         ctr = Counter.new(128, initial_value=bytes_to_long(iv))
         return AES.new(key=key, counter=ctr, mode=AES.MODE_CTR).decrypt(data)
 
-    def sbrom_sha256(self, buffer, destaddr):
+    def sbrom_sha256(self, buffer, destaddr):  # TZCC_SHA256_Init
         dataptr = destaddr + 0x40
         ivptr = destaddr + 0x20
         outptr = destaddr
@@ -1232,12 +1329,24 @@ class dxcc(metaclass=LogBase):
 
     def sbrom_cryptoinitdriver(self, aesivptr, cryptodrivermode):
         if cryptodrivermode & 0xFFFFFFFD == 0:
+            # 0=v9
+            # 1=0x820
+            # 2=0
+            # 3=0
+            # 4=0x1000825
+            # 5=v9>>32
             pdesc = hw_desc_init()
             pdesc = hw_desc_set_din_type(pdesc, DmaMode.DMA_DLLI, aesivptr, 0x20, SB_AXI_ID, AXI_SECURE)
             pdesc = hw_desc_set_flow_mode(pdesc, FlowMode.S_DIN_to_HASH)
             pdesc = hw_desc_set_cipher_mode(pdesc, sep_hash_hw_mode.SEP_HASH_HW_SHA256)
             pdesc = hw_desc_set_setup_mode(pdesc, SetupOp.SETUP_LOAD_STATE0)
             self.sasi_sb_adddescsequence(pdesc)
+            # 0=0
+            # 1=0x8000041
+            # 2=0
+            # 3=0
+            # 4=0x4000825
+            # 5=0
             tdesc = hw_desc_init()
             tdesc = hw_desc_set_flow_mode(tdesc, FlowMode.S_DIN_to_HASH)
             tdesc = hw_desc_set_cipher_mode(tdesc, sep_hash_hw_mode.SEP_HASH_HW_SHA256)
@@ -1268,6 +1377,12 @@ class dxcc(metaclass=LogBase):
             if self.SB_HalWaitDescCompletion() == 1:
                  return True
         if islastblock == 1 and (cryptodrivermode & 0xFFFFFFFD) == 0:
+            # 0=0
+            # 1=0
+            # 2=outputptr
+            # 3=0x42
+            # 4=0x908082B
+            # 5=outputptr>>32<<16
             ydesc = hw_desc_init()
             ydesc = hw_desc_set_dout_dlli(ydesc, outputptr, 0x10, SB_AXI_ID, 0)
             ydesc = hw_desc_set_flow_mode(ydesc, FlowMode.S_HASH_to_DOUT)
@@ -1295,11 +1410,23 @@ class dxcc(metaclass=LogBase):
         fdesc = hw_desc_set_cipher_config0(fdesc, sep_hash_hw_mode.SEP_HASH_HW_SHA256)
         fdesc = hw_desc_set_cipher_config1(fdesc, sep_hash_mode.SEP_HASH_SHA256)
         fdesc = hw_desc_set_setup_mode(fdesc, SetupOp.SETUP_WRITE_STATE0)
+        # 0 = 0
+        # 1 = 0
+        # 2 = outputptr
+        # 3 = 0x82
+        # 4 = 0x80C082B
+        # 5 = outputptr>>32<<16
         self.sasi_sb_adddescsequence(fdesc)
         return self.SB_HalWaitDescCompletion()
 
 
 if __name__ == "__main__":
+    # 0=0
+    # 1=0
+    # 2=outputptr
+    # 3=0x42
+    # 4=0x908082B
+    # 5=outputptr>>32<<16
     desc = hw_desc_init()
     desc = hw_desc_set_dout_dlli(desc, 0, 0x10, SB_AXI_ID, 0)
     desc = hw_desc_set_flow_mode(desc, FlowMode.S_HASH_to_DOUT)

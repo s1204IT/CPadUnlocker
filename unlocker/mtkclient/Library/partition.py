@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 # (c) B.Kerler 2018-2021 GPLv3 License
 import logging
+import os.path
 
 from mtkclient.Library.utils import LogBase, logsetup
 from mtkclient.Library.gpt import gpt

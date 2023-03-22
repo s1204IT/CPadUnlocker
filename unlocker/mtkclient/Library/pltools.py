@@ -24,8 +24,10 @@ class PLTools(metaclass=LogBase):
         self.write32 = self.mtk.preloader.write32
         self.hwcode = mtk.config.hwcode
 
+        # exploit types
         self.kama = Kamakiri(self.mtk, self.__logger.level)
 
+        # crypto types
         setup = crypto_setup()
         setup.hwcode = self.mtk.config.hwcode
         setup.dxcc_base = self.mtk.config.chipconfig.dxcc_base
@@ -247,6 +249,20 @@ class PLTools(metaclass=LogBase):
 
     def run_dump_preloader(self, btype):
         pfilename = os.path.join(self.pathconfig.get_payloads_path(), "generic_preloader_dump_payload.bin")
+        """
+        if btype == "amonet":
+            if self.dump_brom(filename, "gcpu"):
+                self.info("Preloader dumped as: " + filename)
+                return True
+            else:
+                self.error("Error on sending payload: " + pfilename)
+        elif btype == "hashimoto":
+            if self.dump_brom(filename, "cqdma"):
+                self.info("Preloader dumped as: " + filename)
+                return True
+            else:
+                self.error("Error on sending payload: " + pfilename)
+        """
         if btype == "kamakiri":
             self.info("Kamakiri / DA Run")
             if self.runpayload(filename=pfilename, ack=0xC1C2C3C4, offset=0):

@@ -1,17 +1,21 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 # (c) B.Kerler 2018-2021 GPLv3 License
+import os
 import time
 import sys
 import logging
 from enum import Enum
+from struct import unpack, pack
+from binascii import hexlify
 from mtkclient.Library.utils import LogBase, logsetup
+from mtkclient.Library.error import ErrorHandler
 
 class META(metaclass=LogBase):
     class Mode(Enum):
         FASTBOOT = b"FASTBOOT"  # fastboot mode
         META = b"METAMETA"      # MAUI META mode
-        EMETA = b"ADVEMETA"     # Advanced META mode
+        EMETA = b"ADVEMETA"  # Advanced META mode
         FACT = b"FACTFACT"      # Factory menu
         ATE  = b"FACTORYM"      # ATE Signaling Test
         READY = b"READY"

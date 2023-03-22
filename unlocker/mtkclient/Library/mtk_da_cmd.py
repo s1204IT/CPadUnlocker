@@ -46,7 +46,10 @@ class DA_handler(metaclass=LogBase):
                         data.extend(b"".join(
                             [pack("<I", val) for val in self.mtk.preloader.read32(0x200000 + idx, (4 * multiplier))]))
                         idx = idx + (16 * multiplier)
+                        # sys.stdout.write("\r"+str(length-(idx-startidx)))
+                        # sys.stdout.flush()                        sys.stdout.write("\r"+str(length-(idx-startidx)))
                         if ((idx - startidx) > length):
+                            # done reading
                             break
                     except Exception as err:
                         self.error(str(err))
@@ -91,9 +94,11 @@ class DA_handler(metaclass=LogBase):
                         preloader = self.dump_preloader_ram()
         else:
             self.info("Device is unprotected.")
+            # if not mtk.config.is_brom:
+            #   self.mtk.preloader.reset_to_brom()
             if mtk.config.is_brom:
                 self.info("Device is in BROM-Mode. Bypassing security.")
-                mtk = mtk.bypass_security()
+                mtk = mtk.bypass_security()  # Needed for dumping preloader
                 if mtk is not None:
                     self.mtk = mtk
                     if preloader is None:
@@ -714,7 +719,7 @@ class DA_handler(metaclass=LogBase):
                 if not os.path.exists(directory):
                     os.mkdir(directory)
                 dramaddr = 0x40000000
-                dramsize = 0x100000000 - 0x40000000
+                dramsize = 0x100000000 - 0x40000000 # 0xE0000000
                 bromaddr = 0
                 bromsize = 0x200000
                 sramaddr = 0x200000

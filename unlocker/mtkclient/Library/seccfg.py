@@ -24,6 +24,19 @@ class seccfg:
             return False
         return True
 
+        """
+        LKS_DEFAULT = 0x01
+        LKS_MP_DEFAULT = 0x02
+        LKS_UNLOCK = 0x03
+        LKS_LOCK = 0x04
+        LKS_VERIFIED = 0x05
+        LKS_CUSTOM = 0x06
+        LKCS_UNLOCK = 0x01
+        LKCS_LOCK = 0x02
+        SBOOT_RUNTIME_OFF = 0
+        SBOOT_RUNTIME_ON  = 1
+        """
+
     def create(self, sc_org, hwtype: str, lockflag: str = "unlock", V3=False):
         if sc_org is None:
             if lockflag == "unlock":

@@ -1,9 +1,10 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 # (c) B.Kerler 2018-2021 GPLv3 License
+import io
 import logging
 
-import usb.core
+import usb.core  # pyusb
 import usb.util
 import time
 import inspect
@@ -19,20 +20,23 @@ from mtkclient.Library.utils import *
 from struct import pack, calcsize
 import traceback
 from mtkclient.Library.Connection.devicehandler import DeviceClass
-USB_DIR_OUT = 0
-USB_DIR_IN = 0x80
+USB_DIR_OUT = 0  # to device
+USB_DIR_IN = 0x80  # to host
 
+# USB types, the second of three bRequestType fields
 USB_TYPE_MASK = (0x03 << 5)
 USB_TYPE_STANDARD = (0x00 << 5)
 USB_TYPE_CLASS = (0x01 << 5)
 USB_TYPE_VENDOR = (0x02 << 5)
 USB_TYPE_RESERVED = (0x03 << 5)
 
+# USB recipients, the third of three bRequestType fields
 USB_RECIP_MASK = 0x1f
 USB_RECIP_DEVICE = 0x00
 USB_RECIP_INTERFACE = 0x01
 USB_RECIP_ENDPOINT = 0x02
 USB_RECIP_OTHER = 0x03
+# From Wireless USB 1.0
 USB_RECIP_PORT = 0x04
 USB_RECIP_RPIPE = 0x05
 
@@ -47,7 +51,7 @@ CDC_CMDS = {
     "SET_LINE_CODING": 0x20,
     "GET_LINE_CODING": 0x21,
     "SET_CONTROL_LINE_STATE": 0x22,
-    "SEND_BREAK": 0x23,
+    "SEND_BREAK": 0x23,  # wValue is break time
 }
 
 
@@ -57,6 +61,7 @@ class usb_class(DeviceClass):
         if os.name == 'nt':
             windows_dir = None
             try:
+                # add pygame folder to Windows DLL search paths
                 windows_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "..", "..", "Windows")
                 try:
                     os.add_dll_directory(windows_dir)
@@ -75,7 +80,6 @@ class usb_class(DeviceClass):
         self.buffer = array.array('B', [0]) * 1048576
         self.vid = None
         self.pid = None
-        self.fast = False
         self.stopbits = None
         self.databits = None
         self.interface = None
@@ -97,12 +101,6 @@ class usb_class(DeviceClass):
                 self.backend.lib.libusb_set_option(self.backend.ctx, 1)
             except:
                 self.backend = None
-
-    def set_fast_mode(self, enabled):
-        if enabled:
-            self.fast = True
-        else:
-            self.fast = False
 
     def verify_data(self, data, pre="RX:"):
         if self.__logger.level == logging.DEBUG:
@@ -203,9 +201,9 @@ class usb_class(DeviceClass):
             self.parity,
             self.databits]
 
-        txdir = 0
-        req_type = 1
-        recipient = 1
+        txdir = 0  # 0:OUT, 1:IN
+        req_type = 1  # 0:std, 1:class, 2:vendor
+        recipient = 1  # 0:device, 1:interface, 2:endpoint, 3:other
         req_type = (txdir << 7) + (req_type << 5) + recipient
         data = bytearray(linecode)
         wlen = self.device.ctrl_transfer(
@@ -214,9 +212,9 @@ class usb_class(DeviceClass):
         self.debug("Linecoding set, {}b sent".format(wlen))
 
     def setbreak(self):
-        txdir = 0
-        req_type = 1
-        recipient = 1
+        txdir = 0  # 0:OUT, 1:IN
+        req_type = 1  # 0:std, 1:class, 2:vendor
+        recipient = 1  # 0:device, 1:interface, 2:endpoint, 3:other
         req_type = (txdir << 7) + (req_type << 5) + recipient
         wlen = self.device.ctrl_transfer(
             bmRequestType=req_type, bRequest=CDC_CMDS["SEND_BREAK"],
@@ -228,8 +226,9 @@ class usb_class(DeviceClass):
         if isFTDI:
             ctrlstate += (1 << 8) if DTR is not None else 0
             ctrlstate += (2 << 8) if RTS is not None else 0
-        txdir = 0
-        req_type = 2 if isFTDI else 1
+        txdir = 0  # 0:OUT, 1:IN
+        req_type = 2 if isFTDI else 1  # 0:std, 1:class, 2:vendor
+        # 0:device, 1:interface, 2:endpoint, 3:other
         recipient = 0 if isFTDI else 1
         req_type = (txdir << 7) + (req_type << 5) + recipient
 
@@ -283,7 +282,7 @@ class usb_class(DeviceClass):
             for interfacenum in range(0, self.configuration.bNumInterfaces):
                 itf = usb.util.find_descriptor(self.configuration, bInterfaceNumber=interfacenum)
                 if self.devclass != -1:
-                    if itf.bInterfaceClass == self.devclass:
+                    if itf.bInterfaceClass == self.devclass:  # MassStorage
                         self.interface = interfacenum
                         break
                 else:
@@ -325,11 +324,13 @@ class usb_class(DeviceClass):
             self.EP_IN = EP_IN
             if EP_OUT == -1:
                 self.EP_OUT = usb.util.find_descriptor(itf,
+                                                       # match the first OUT endpoint
                                                        custom_match=lambda e: \
                                                            usb.util.endpoint_direction(e.bEndpointAddress) ==
                                                            usb.util.ENDPOINT_OUT)
             if EP_IN == -1:
                 self.EP_IN = usb.util.find_descriptor(itf,
+                                                      # match the first OUT endpoint
                                                       custom_match=lambda e: \
                                                           usb.util.endpoint_direction(e.bEndpointAddress) ==
                                                           usb.util.ENDPOINT_IN)
@@ -346,6 +347,7 @@ class usb_class(DeviceClass):
                     self.device.reset()
                 try:
                     if not self.device.is_kernel_driver_active(self.interface):
+                        # self.device.attach_kernel_driver(self.interface) #Do NOT uncomment
                         self.device.attach_kernel_driver(0)
                 except:
                     pass
@@ -354,6 +356,7 @@ class usb_class(DeviceClass):
             if reset:
                 try:
                     if not self.device.is_kernel_driver_active(0):
+                        # self.device.attach_kernel_driver(self.interface) #Do NOT uncomment
                         self.device.attach_kernel_driver(0)
                 except:
                     pass
@@ -376,6 +379,7 @@ class usb_class(DeviceClass):
             except usb.core.USBError as err:
                 error = str(err.strerror)
                 if "timeout" in error:
+                    # time.sleep(0.01)
                     try:
                         self.EP_OUT.write(b'')
                     except Exception as err:
@@ -392,6 +396,8 @@ class usb_class(DeviceClass):
                     pos += pktsize
                 except Exception as err:
                     self.debug(str(err))
+                    # print("Error while writing")
+                    # time.sleep(0.01)
                     i += 1
                     if i == 3:
                         return False
@@ -410,16 +416,11 @@ class usb_class(DeviceClass):
         epr = self.EP_IN.read
         wMaxPacketSize = self.EP_IN.wMaxPacketSize
         extend = res.extend
-        buffer = None
-        if self.fast:
-            buffer = self.buffer[:resplen]
+        buffer = self.buffer[:resplen]
         while len(res) < resplen:
             try:
-                if self.fast:
-                    rlen = epr(buffer, timeout)
-                    extend(buffer[:rlen])
-                else:
-                    extend(epr(resplen))
+                rlen = epr(buffer, timeout)
+                extend(buffer[:rlen])
             except usb.core.USBError as e:
                 error = str(e.strerror)
                 if "timed out" in error:
@@ -464,10 +465,12 @@ class usb_class(DeviceClass):
         if pktsize is None:
             pktsize = len(data)
         res = self.write(data, pktsize)
+        # port->flush()
         return res
 
     def usbreadwrite(self, data, resplen):
-        self.usbwrite(data)
+        self.usbwrite(data)  # size
+        # port->flush()
         res = self.usbread(resplen)
         return res
 
@@ -522,6 +525,9 @@ command_status_wrapper_len = 13
 
 
 class Scsi:
+    """
+    FIHTDC, PCtool
+    """
     SC_READ_NV = 0xf0
     SC_SWITCH_STATUS = 0xf1
     SC_SWITCH_PORT = 0xf2
@@ -537,7 +543,14 @@ class Scsi:
     SC_ENTER_DOWNLOADMODE = 0xff
     SC_ENTER_FTMMODE = 0xe0
     SC_SWITCH_ROOT = 0xe1
+    """
+    //Div2-5-3-Peripheral-LL-ADB_ROOT-00+/* } FIHTDC, PCtool */
+    //StevenCPHuang 2011/08/12 porting base on 1050 --
+    //StevenCPHuang_20110820,add Moto's mode switch cmd to support PID switch function ++
+    """
     SC_MODE_SWITCH = 0xD6
+
+    # /StevenCPHuang_20110820,add Moto's mode switch cmd to support PID switch function --
 
     def __init__(self, loglevel=logging.INFO, vid=None, pid=None, interface=-1):
         self.vid = vid
@@ -555,6 +568,8 @@ class Scsi:
             return True
         return False
 
+    # htcadb = "55534243123456780002000080000616687463800100000000000000000000";
+    # Len 0x6, Command 0x16, "HTC" 01 = Enable, 02 = Disable
     def send_mass_storage_command(self, lun, cdb, direction, data_length):
         global tag
         cmd = cdb[0]
@@ -589,8 +604,16 @@ class Scsi:
         return tag
 
     def send_htc_adbenable(self):
+        # do_reserve from f_mass_storage.c
         print("Sending HTC adb enable command")
-        common_cmnd = b"\x16htc\x80\x01"
+        common_cmnd = b"\x16htc\x80\x01"  # reserve_cmd + 'htc' + len + flag
+        '''
+        Flag values:
+            1: Enable adb daemon from mass_storage
+            2: Disable adb daemon from mass_storage
+            3: cancel unmount BAP cdrom
+            4: cancel unmount HSM rom
+        '''
         lun = 0
         datasize = common_cmnd[4]
         timeout = 5000
@@ -601,19 +624,32 @@ class Scsi:
             print("DATA: " + hexlify(data).decode('utf-8'))
         print("Sent HTC adb enable command")
 
-    def send_htc_ums_adbenable(self):
+    def send_htc_ums_adbenable(self):  # HTC10
+        # ums_ctrlrequest from f_mass_storage.c
         print("Sending HTC ums adb enable command")
         brequesttype = USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_DEVICE
         brequest = 0xa0
         wvalue = 1
+        '''
+        wValue:
+            0: Disable adb daemon
+            1: Enable adb daemon
+        '''
         windex = 0
         w_length = 1
         ret = self.usb.ctrl_transfer(brequesttype, brequest, wvalue, windex, w_length)
         print("Sent HTC ums adb enable command: %x" % ret)
 
-    def send_zte_adbenable(self):
-        common_cmnd = b"\x86zte\x80\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
-        common_cmnd2 = b"\x86zte\x80\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+    def send_zte_adbenable(self):  # zte blade
+        common_cmnd = b"\x86zte\x80\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"  # reserve_cmd + 'zte' + len + flag
+        common_cmnd2 = b"\x86zte\x80\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"  # reserve_cmd + 'zte' + len + flag
+        '''
+        Flag values:
+            0: disable adbd ---for 736T
+            1: enable adbd ---for 736T
+            2: disable adbd ---for All except 736T
+            3: enable adbd ---for All except 736T
+        '''
         lun = 0
         datasize = common_cmnd[4]
         timeout = 5000
@@ -626,10 +662,11 @@ class Scsi:
             print("DATA: " + hexlify(data).decode('utf-8'))
         print("Send HTC adb enable command")
 
-    def send_fih_adbenable(self):
+    def send_fih_adbenable(self):  # motorola xt560, nokia 3.1, #f_mass_storage.c
         if self.usb.connect():
             print("Sending FIH adb enable command")
             datasize = 0x24
+            # reserve_cmd + 'FI' + flag + len + none
             common_cmnd = bytes([self.SC_SWITCH_PORT]) + b"FI1" + pack("<H", datasize)
             '''
             Flag values:
@@ -637,16 +674,18 @@ class Scsi:
                 common_cmnd[3]->0: Disable adb daemon from mass_storage
             '''
             lun = 0
+            # datasize=common_cmnd[4]
             timeout = 5000
             ret_tag = None
             ret_tag += self.send_mass_storage_command(lun, common_cmnd, USB_DIR_IN, 0x600)
+            # ret_tag+=self.send_mass_storage_command(lun, common_cmnd, USB_DIR_IN, 0x600)
             if datasize > 0:
                 data = self.usb.read(datasize, timeout)
                 print("DATA: " + hexlify(data).decode('utf-8'))
             print("Sent FIH adb enable command")
             self.usb.close()
 
-    def send_alcatel_adbenable(self):
+    def send_alcatel_adbenable(self):  # Alcatel MW41
         if self.usb.connect():
             print("Sending alcatel adb enable command")
             datasize = 0x24
@@ -661,11 +700,15 @@ class Scsi:
             self.usb.close()
 
     def send_fih_root(self):
+        # motorola xt560, nokia 3.1, huawei u8850, huawei Ideos X6,
+        # lenovo s2109, triumph M410, viewpad 7, #f_mass_storage.c
         if self.usb.connect():
             print("Sending FIH root command")
             datasize = 0x24
+            # reserve_cmd + 'FIH' + len + flag + none
             common_cmnd = bytes([self.SC_SWITCH_ROOT]) + b"FIH" + pack("<H", datasize)
             lun = 0
+            # datasize = common_cmnd[4]
             timeout = 5000
             ret_tag = self.send_mass_storage_command(lun, common_cmnd, USB_DIR_IN, 0x600)
             ret_tag += self.send_mass_storage_command(lun, common_cmnd, USB_DIR_IN, 0x600)

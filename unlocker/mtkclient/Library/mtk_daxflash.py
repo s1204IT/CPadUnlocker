@@ -4,9 +4,10 @@
 import logging
 import time
 import os
+import hashlib
 from binascii import hexlify
 from struct import pack, unpack
-from mtkclient.Library.utils import LogBase, logsetup
+from mtkclient.Library.utils import LogBase, progress, logsetup
 from mtkclient.Library.error import ErrorHandler
 from mtkclient.Library.daconfig import EMMC_PartitionType, UFS_PartitionType, DaStorage
 from mtkclient.Library.partition import Partition
@@ -16,10 +17,15 @@ from mtkclient.Library.settings import hwparam
 
 
 class NandExtension:
+    # uni=0, multi=1
     cellusage = 0
+    # logical=0, physical=1, physical_pmt=2
     addr_type = 0
+    # raw=0, ubi_img=1, ftl_img=2
     bin_type = 0
-    operation_type = 0
+    # operation_type -> spare=0,page=1,page_ecc=2,page_spare_ecc=3,verify=4,page_spare_norandom,page_fdm
+    # nand_format_level -> format_normal=0,force=1,mark_bad_block=2,level_end=3
+    operation_type = 0  # or nand_format_level
     sys_slc_percent = 0
     usr_slc_percent = 0
     phy_max_size = 0
@@ -269,14 +275,19 @@ class DAXFlash(metaclass=LogBase):
         return b""
 
     def set_reset_key(self, reset_key=0x68):
+        # default:0x0,one:0x50,two:0x68
         param = pack("<I", reset_key)
         return self.send_devctrl(self.Cmd.SET_RESET_KEY, param)
 
     def set_meta(self, porttype="off"):
         class mtk_boot_mode_flag:
-            boot_mode = b"\x00"
-            com_type = b"\x00"
-            com_id = b"\x00"
+            boot_mode = b"\x00"  # 0:normal, 1:meta
+            com_type = b"\x00"  # 0:unknown, 1:uart, 2:usb
+            com_id = b"\x00"  # 0:single interface device (meta,adb)
+
+            # 1:composite device (meta, adb disable)
+            # 2:no meta, adb enable
+            # 3:no meta, adb disable
 
             def __init__(self, mode="off"):
                 if mode == "off":
@@ -300,10 +311,12 @@ class DAXFlash(metaclass=LogBase):
 
     def set_checksum_level(self, checksum_level=0x0):
         param = pack("<I", checksum_level)
+        # none[0x0]. USB[0x1]. storage[0x2], both[0x3]
         return self.send_devctrl(self.Cmd.SET_CHECKSUM_LEVEL, param)
 
     def set_battery_opt(self, option=0x2):
         param = pack("<I", option)
+        # battery[0x0]. USB power[0x1]. auto[0x2]
         return self.send_devctrl(self.Cmd.SET_BATTERY_OPT, param)
 
     def send_emi(self, emi):
@@ -339,7 +352,7 @@ class DAXFlash(metaclass=LogBase):
                 self.error(f"Error on sending data: {self.eh.status(status)}")
                 return False
 
-    def boot_to(self, at_address, da, display=True, timeout=0.5):
+    def boot_to(self, at_address, da, display=True, timeout=0.5):  # =0x40000000
         if self.xsend(self.Cmd.BOOT_TO):
             if self.status() == 0:
                 param = pack("<QQ", at_address, len(da))
@@ -367,6 +380,7 @@ class DAXFlash(metaclass=LogBase):
         return False
 
     def get_connection_agent(self):
+        # brom
         res = self.send_devctrl(self.Cmd.GET_CONNECTION_AGENT)
         if res != b"":
             status = self.status()
@@ -375,6 +389,14 @@ class DAXFlash(metaclass=LogBase):
             else:
                 self.error(f"Error on getting connection agent: {self.eh.status(status)}")
         return None
+
+    """
+    def get_dram_type(self):
+        res = self.send_devctrl(self.Cmd.GET_DRAM_TYPE)
+        status = self.status()
+        if status == 0x0:
+            return res
+    """
 
     def partitiontype_and_size(self, storage=None, parttype=None, length=0):
         if storage == DaStorage.MTK_DA_STORAGE_EMMC or storage == DaStorage.MTK_DA_STORAGE_SDMMC:
@@ -414,16 +436,16 @@ class DAXFlash(metaclass=LogBase):
                            "\"gp2\",\"gp3\",\"gp4\",\"rpmb\"")
                 return []
         elif storage == DaStorage.MTK_DA_STORAGE_UFS:
-            if parttype is None or parttype == "lu3" or parttype == "user":
+            if parttype is None or parttype == "lu3" or parttype == "user":  # USER
                 parttype = UFS_PartitionType.UFS_LU3
                 length = min(length, self.ufs.lu0_size)
-            elif parttype in ["lu1", "boot1"]:
+            elif parttype in ["lu1", "boot1"]:  # BOOT1
                 parttype = UFS_PartitionType.UFS_LU1
                 length = min(length, self.ufs.lu1_size)
-            elif parttype in ["lu2", "boot2"]:
+            elif parttype in ["lu2", "boot2"]:  # BOOT2
                 parttype = UFS_PartitionType.UFS_LU2
                 length = min(length, self.ufs.lu2_size)
-            elif parttype in ["lu4", "rpmb"]:
+            elif parttype in ["lu4", "rpmb"]:  # RPMB
                 parttype = UFS_PartitionType.UFS_LU4
                 length = min(length, self.ufs.lu2_size)
             else:
@@ -452,6 +474,8 @@ class DAXFlash(metaclass=LogBase):
         if self.xsend(self.Cmd.FORMAT):
             status = self.status()
             if status == 0:
+                # storage: emmc:1,slc,nand,nor,ufs
+                # section: boot,user of emmc:8, LU1, LU2
 
                 ne = NandExtension()
                 param = pack("<IIQQ", storage, parttype, addr, length)
@@ -459,10 +483,11 @@ class DAXFlash(metaclass=LogBase):
                               ne.sys_slc_percent, ne.usr_slc_percent, ne.phy_max_size, 0x0)
                 if self.send_param(param):
                     status = self.status()
-                    while status == 0x40040004:
+                    while status == 0x40040004:  # STATUS_CONTINUE
+                        # it receive some data maybe sleep in ms time,
                         time.sleep(self.status() / 1000.0)
                         status = self.ack()
-                    if status == 0x40040005:
+                    if status == 0x40040005:  # STATUS_COMPLETE
                         self.mtk.daloader.progress.show_progress("Erasing", length, length, True)
                         self.info(f"Successsfully formatted addr {hex(addr)} with length {length}.")
                         return True
@@ -537,7 +562,7 @@ class DAXFlash(metaclass=LogBase):
         status = self.status()
         if status == 0:
             class EmmcInfo:
-                type = 1
+                type = 1  # emmc or sdmmc or none
                 block_size = 0x200
                 boot1_size = 0
                 boot2_size = 0
@@ -592,7 +617,7 @@ class DAXFlash(metaclass=LogBase):
         status = self.status()
         if status == 0:
             class NandInfo:
-                type = 1
+                type = 1  # slc, mlc, spi, none
                 page_size = 0
                 block_size = 0x200
                 spare_size = 0
@@ -630,7 +655,7 @@ class DAXFlash(metaclass=LogBase):
         status = self.status()
         if status == 0:
             return resp
-
+        
     def get_nor_info(self, display=True):
         resp = self.send_devctrl(self.Cmd.GET_NOR_INFO)
         if resp == b'':
@@ -638,7 +663,7 @@ class DAXFlash(metaclass=LogBase):
         status = self.status()
         if status == 0:
             class NorInfo:
-                type = 1
+                type = 1  # nor, none
                 page_size = 0
                 available_size = 0
 
@@ -660,38 +685,34 @@ class DAXFlash(metaclass=LogBase):
         status = self.status()
         if status == 0:
             class UfsInfo:
-                type = 1
+                type = 1  # nor, none
                 block_size = 0
                 lu0_size = 0
                 lu1_size = 0
                 lu2_size = 0
                 cid = b""
-                fwver = b""
-                serial = b""
+                fwver = 0
+
             ufs = UfsInfo()
             ufs.type, ufs.block_size, ufs.lu2_size, ufs.lu1_size, ufs.lu0_size = unpack("<IIQQQ",
                                                                                         resp[:(2 * 4) + (3 * 8)])
             pos = (2 * 4) + (3 * 8)
-            buf = resp[pos:]
-            ufs.cid = buf[:16]
-            ufs.fwver = buf[22:22+4]
-            ufs.serial = buf[30:30+0xC]
+            ufs.cid = resp[pos:pos + 16]
+            ufs.fwver = unpack("<I", resp[pos + 16:pos + 16 + 4])[0]
             if ufs.type != 0:
                 if display:
+                    self.info(f"UFS FWVer:    {hex(ufs.fwver)}")
                     self.info(f"UFS Blocksize:{hex(ufs.block_size)}")
                     try:
                         self.info(f"UFS ID:       {ufs.cid[2:].decode('utf-8')}")
                     except:
                         pass
-                    self.info(f"UFS MID:      {hex(ufs.cid[0])}")
                     self.info(f"UFS CID:      {hexlify(ufs.cid).decode('utf-8')}")
-                    self.info(f"UFS FWVer:    {hexlify(ufs.fwver).decode('utf-8')}")
-                    self.info(f"UFS Serial:   {hexlify(ufs.serial).decode('utf-8')}")
+                    if self.config.hwparam is not None:
+                        self.config.set_cid(ufs.cid)
                     self.info(f"UFS LU0 Size: {hex(ufs.lu0_size)}")
                     self.info(f"UFS LU1 Size: {hex(ufs.lu1_size)}")
                     self.info(f"UFS LU2 Size: {hex(ufs.lu2_size)}")
-                if self.config.hwparam is not None:
-                    self.config.set_cid(buf[:0x11+2]+buf[0x16:0x16+4+1]+buf[0x1E:0x1E+0xC])
                 self.mtk.config.pagesize = ufs.block_size
                 self.mtk.daloader.daconfig.pagesize = ufs.block_size
             return ufs
@@ -767,6 +788,7 @@ class DAXFlash(metaclass=LogBase):
         if resp != b"":
             status = self.status()
             if status == 0:
+                # full-speed, high-speed, hyper-speed
                 return resp
             else:
                 self.error(f"Error on getting usb speed: {self.eh.status(status)}")
@@ -790,6 +812,8 @@ class DAXFlash(metaclass=LogBase):
         if self.xsend(self.Cmd.WRITE_DATA):
             status = self.status()
             if status == 0:
+                # storage: emmc:1,slc,nand,nor,ufs
+                # section: boot,user of emmc:8, LU1, LU2
                 ne = NandExtension()
                 param = pack("<IIQQ", storage, parttype, addr, size)
                 param += pack("<IIIIIIII", ne.cellusage, ne.addr_type, ne.bin_type, ne.operation_type,
@@ -805,6 +829,8 @@ class DAXFlash(metaclass=LogBase):
         if self.xsend(self.Cmd.READ_DATA):
             status = self.status()
             if status == 0:
+                # storage: emmc:1,slc,nand,nor,ufs
+                # section: boot,user of emmc:8, LU1, LU2
                 ne = NandExtension()
                 param = pack("<IIQQ", storage, parttype, addr, size)
                 param += pack("<IIIIIIII", ne.cellusage, ne.addr_type, ne.bin_type, ne.operation_type,
@@ -884,11 +910,12 @@ class DAXFlash(metaclass=LogBase):
             status = self.status()
             if status == 0:
                 hasflags = 0
+                # bootmode 0: shutdown 1: home screen, 2: fastboot
                 if async_mode or dl_bit or bootmode > 0:
                     hasflags = 1
-                enablewdt = 0
-                dont_resetrtc = 0
-                leaveusb = 0
+                enablewdt = 0  # Disable wdt
+                dont_resetrtc = 0  # Reset RTC
+                leaveusb = 0  # Disconnect usb
                 if self.xsend(pack("<IIIIIIII", hasflags, enablewdt, async_mode, bootmode, dl_bit,
                                    dont_resetrtc, leaveusb, 0)):
                     status = self.status()
@@ -938,6 +965,7 @@ class DAXFlash(metaclass=LogBase):
         if not partinfo:
             return False
         storage, parttype, rlength = partinfo
+        # self.send_devctrl(self.Cmd.START_DL_INFO)
         plen = self.get_packet_length()
         write_packet_size = plen.write_packet_length
 
@@ -1002,7 +1030,7 @@ class DAXFlash(metaclass=LogBase):
 
     def setup_hw_init(self):
         if self.xsend(self.Cmd.SETUP_HW_INIT_PARAMS):
-            param = pack("<I", 0x0)
+            param = pack("<I", 0x0)  # No config
             if self.send_param(param):
                 return True
         return False
@@ -1017,6 +1045,7 @@ class DAXFlash(metaclass=LogBase):
             self.info(f"Couldn't find {loader}, aborting.")
             return False
         with open(loader, 'rb') as bootldr:
+            # stage 1
             da1offset = self.daconfig.da_loader.region[1].m_buf
             da1size = self.daconfig.da_loader.region[1].m_len
             da1address = self.daconfig.da_loader.region[1].m_start_addr
@@ -1024,6 +1053,7 @@ class DAXFlash(metaclass=LogBase):
             da1sig_len = self.daconfig.da_loader.region[1].m_sig_len
             bootldr.seek(da1offset)
             da1 = bootldr.read(da1size)
+            # ------------------------------------------------
             da2offset = self.daconfig.da_loader.region[2].m_buf
             da2sig_len = self.daconfig.da_loader.region[2].m_sig_len
             bootldr.seek(da2offset)
@@ -1106,13 +1136,13 @@ class DAXFlash(metaclass=LogBase):
             while not self.mtk.port.cdc.connect():
                 time.sleep(0.5)
             self.info("Connected to preloader")
-            self.mtk.port.cdc.set_fast_mode(True)
             self.config.set_gui_status(self.config.tr("Connected to preloader"))
 
     def upload_da(self):
         if self.upload():
             self.get_expire_date()
             self.set_reset_key(0x68)
+            # self.set_battery_opt(0x2)
             self.set_checksum_level(0x0)
             connagent = self.get_connection_agent()
             emmc_info = self.get_emmc_info(False)
@@ -1123,6 +1153,8 @@ class DAXFlash(metaclass=LogBase):
                 if ufs_info is not None and ufs_info.block_size != 0:
                     self.info("DRAM config needed for : " + hexlify(ufs_info.cid).decode('utf-8'))
 
+            # dev_fw_info=self.get_dev_fw_info()
+            # dramtype = self.get_dram_type()
             stage = None
             if connagent == b"brom":
                 stage = 1
