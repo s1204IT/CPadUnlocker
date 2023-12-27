@@ -1,5 +1,5 @@
-w boot ..\magisk.img
-w lk ..\lk.bin
-w lk2 ..\lk.bin
-e userdata,metadata
-reset
+w boot ..\magisk.img --noreconnect
+w lk ..\lk.bin --noreconnect
+w lk2 ..\lk.bin --noreconnect
+w factory .\factory.img --noreconnect
+e userdata,metadata --noreconnect
